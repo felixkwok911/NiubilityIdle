@@ -1,0 +1,21 @@
+﻿; Engine configuration file.
+config_version=5
+
+[application]
+
+config/name="Niubility Idle"
+run/main_scene="res://Scenes/Main.tscn"
+config/features=PackedStringArray("4.2", "C#")
+
+[autoload]
+
+GameManager="*res://Scripts/Autoload/GameManager.cs"
+
+[display]
+
+window/size/viewport_width=1600
+window/size/viewport_height=900
+
+[dotnet]
+
+project/assembly_name="NiubilityIdle"

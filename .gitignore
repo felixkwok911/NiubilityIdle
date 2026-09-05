@@ -1,0 +1,11 @@
+# Godot 导入缓存与临时文件
+.godot/
+*.tmp
+mono_crash.*.json
+
+# 第三方美术资产(公开仓库不入库;私有仓库可自行移除本行)
+Assets/UI/*.png
+
+# 系统垃圾
+Thumbs.db
+Desktop.ini
