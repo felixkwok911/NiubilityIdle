@@ -37,6 +37,8 @@ namespace NiubilityIdle.Data
         [JsonProperty] public bool autoBuy = false;
         // 无限达成标记(用于触发一次性提示)
         [JsonProperty] public bool infBroken = false;
+        // 商店增益等级:每级全局产出 ×2(原版商店 boost)
+        [JsonProperty] public int boostLevel = 0;
     }
 
     public class InfinityData

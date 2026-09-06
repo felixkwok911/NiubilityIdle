@@ -94,6 +94,8 @@ namespace NiubilityIdle
 		private Label _prestigeClickLbl;
 		private Label _promoLbl;
 		private Label _autoLbl;
+		private Label _fluxBig;
+		private readonly List<TextureRect> _menuIcons = new();
 		private Panel _progressFill;
 		private Label _progressLbl;
 		private Label _progressMarker;
@@ -240,6 +242,7 @@ namespace NiubilityIdle
 				_barLine2[i].AddThemeColorOverride("font_color", canBuy ? new Color("0a3d12") : new Color("111111"));
 			}
 			RefreshPrestigeWindow();
+			if (_fluxBig != null) _fluxBig.Text = Suf(g.game.timeFlux);
 		}
 
 		private void Toast(string msg)
@@ -437,9 +440,11 @@ namespace NiubilityIdle
 		// 原版：无限/无限树/永恒首通无限前挂锁
 		private static bool MenuLocked(int idx)
 		{
-			if (idx < 1 || idx > 3) return false;
+			if (idx < 1 || idx > 4) return false;
 			var s = SD();
-			return s == null || s.infinity.infinities.CompareTo(BigDouble.Zero) <= 0;
+			if (s == null) return true;
+			if (idx <= 3) return s.infinity.infinities.CompareTo(BigDouble.Zero) <= 0; // 无限/无限树/永恒:完成无限解锁
+			return s.eternity.EP.CompareTo(BigDouble.Zero) <= 0;                      // 统一:获得 EP 解锁
 		}
 
 		private void RefreshMenuLocks()
@@ -448,6 +453,20 @@ namespace NiubilityIdle
 			{
 				bool locked = MenuLocked(i);
 				var hb = _menuRows[i].GetChild(0);
+				// 锁定时图标换原版锁(图集 171,0)并变淡
+				if (hb.GetChildCount() > 0 && hb.GetChild(0) is TextureRect tr && tr.Texture is AtlasTexture at)
+				{
+					if (locked)
+					{
+						at.Region = new Rect2(171, 0, 56, 56);
+						tr.Modulate = new Color(1, 1, 1, 0.5f);
+					}
+					else if (MenuIconDefs[i] is Vector2 region)
+					{
+						at.Region = new Rect2(region.X, region.Y, 56, 56);
+						tr.Modulate = Colors.White;
+					}
+				}
 				if (hb.GetChildCount() > 1 && hb.GetChild(1) is Label nameLbl)
 				{
 					nameLbl.Text = locked ? "已锁定" : MenuNames[i];
@@ -464,7 +483,7 @@ namespace NiubilityIdle
 			// 旧页控件即将释放,先断开动态刷新引用,避免 _Process 访问已释放对象
 			_scoreLbl = null; _gainLbl = null; _perRevLbl = null;
 			_prestigeExpLbl = null; _prestigeMultLbl = null; _prestigeClickLbl = null;
-			_promoLbl = null; _autoLbl = null;
+			_promoLbl = null; _autoLbl = null; _fluxBig = null;
 			_barLine1.Clear(); _barLine2.Clear();
 			for (int i = 0; i < _menuRows.Count; i++)
 				_menuRows[i].AddThemeStyleboxOverride("panel",
@@ -927,9 +946,10 @@ namespace NiubilityIdle
 		private Control BuildTimeFluxPage()
 		{
 			var g = SD();
-			var page = (ScrollContainer)PageShell("时间流量 Time Flux", Suf(g.game.timeFlux), "时间流量 · 灵魂 " + Suf(g.game.souls), new Color("ef8b33"));
+			var page = (ScrollContainer)PageShell("时间流量 Time Flux", Suf(g.game.timeFlux), "随游戏时间自动积累 · 灵魂 " + Suf(g.game.souls), new Color("ef8b33"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			vb.AddChild(Card("自动减速", new[] { "autoSlowdown:开 · 时间流量自动收益最大化" }));
+			_fluxBig = (Label)((VBoxContainer)page.GetChild(0)).GetChild(1);
+			vb.AddChild(Card("自动减速", new[] { "时间流量持续积累中:每秒 +1", "后期用于减速外圈、获取灵魂加成" }));
 			return page;
 		}
 
@@ -1053,24 +1073,53 @@ namespace NiubilityIdle
 
 		private Control BuildShopPage()
 		{
-			string[][] items =
-			{
-				new[] { "新手礼包", "全部奖励已领取" },
-				new[] { "遗物商店", "autoBuyRelics 开启 · 全遗物已购" },
-				new[] { "符文商店", "autoBuyRunes 开启 · 全符文已购" },
-				new[] { "塔罗抽卡", "autoTarotDraw 开启 · 全塔罗已收集" },
-				new[] { "星之祝福", "autoStar 开启 · 全星辰点亮" },
-				new[] { "奇点礼包", "autoSingularity 开启 · 奇点已激活" },
-			};
+			var g = SD();
 			var page = (ScrollContainer)PageShell("商店 Shop", null, null, C_White);
 			var vb = (VBoxContainer)page.GetChild(0);
 			var grid = new GridContainer { Columns = 3 };
 			grid.AddThemeConstantOverride("h_separation", 10);
 			grid.AddThemeConstantOverride("v_separation", 10);
-			foreach (var it in items)
+
+			// 可购买:全局产出增益(每级 ×2,价格 ×100 递增)
+			var boost = new PanelContainer { CustomMinimumSize = new Vector2(280, 96), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+			boost.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+			var bmv = new MarginContainer();
+			bmv.AddThemeConstantOverride("margin_left", 12); bmv.AddThemeConstantOverride("margin_top", 8);
+			bmv.AddThemeConstantOverride("margin_right", 12); bmv.AddThemeConstantOverride("margin_bottom", 8);
+			boost.AddChild(bmv);
+			var bvb = new VBoxContainer(); bvb.AddThemeConstantOverride("separation", 4); bmv.AddChild(bvb);
+			var bn = new Label { Text = $"产出增益 ×2 (Lv{g.game.boostLevel})" };
+			bn.AddThemeFontSizeOverride("font_size", 16);
+			bn.AddThemeColorOverride("font_color", C_White);
+			bvb.AddChild(bn);
+			var bs = new Label { Text = $"全局产出永久翻倍 · 价格 {Suf(GM().GetBoostCost())} ⊙" };
+			bs.AddThemeFontSizeOverride("font_size", 12);
+			bs.AddThemeColorOverride("font_color", g.game.score >= GM().GetBoostCost() ? C_Green : C_Gray);
+			bvb.AddChild(bs);
+			var bb = MakeTextButton("购 买", C_Green, new Color("0c2a10"), 0, 30, 14);
+			bb.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			bb.Pressed += () =>
 			{
-				var card = new PanelContainer { CustomMinimumSize = new Vector2(280, 84), SizeFlagsHorizontal = SizeFlags.ExpandFill };
-				card.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+				if (GM().TryBuyBoost()) Toast($"增益升级到 Lv{GM().Save.game.boostLevel}!产出 ×2");
+				else Toast($"分数不足,需要 {Suf(GM().GetBoostCost())}");
+				ShowMenu(_curMenu);
+			};
+			bvb.AddChild(bb);
+			grid.AddChild(boost);
+
+			// 待开放项(原版后期系统)
+			string[][] locked =
+			{
+				new[] { "遗物商店", "解锁自动化后开放" },
+				new[] { "符文商店", "转生 10 次后开放" },
+				new[] { "塔罗抽卡", "永恒后开放" },
+				new[] { "星之祝福", "统一后开放" },
+				new[] { "奇点礼包", "无限 100 次后开放" },
+			};
+			foreach (var it in locked)
+			{
+				var card = new PanelContainer { CustomMinimumSize = new Vector2(280, 96), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+				card.AddThemeStyleboxOverride("panel", Flat(new Color("262626"), 8));
 				var mv = new MarginContainer();
 				mv.AddThemeConstantOverride("margin_left", 12); mv.AddThemeConstantOverride("margin_top", 8);
 				mv.AddThemeConstantOverride("margin_right", 12); mv.AddThemeConstantOverride("margin_bottom", 8);
@@ -1078,11 +1127,11 @@ namespace NiubilityIdle
 				var cvb = new VBoxContainer(); cvb.AddThemeConstantOverride("separation", 4); mv.AddChild(cvb);
 				var n = new Label { Text = it[0] };
 				n.AddThemeFontSizeOverride("font_size", 16);
-				n.AddThemeColorOverride("font_color", C_White);
+				n.AddThemeColorOverride("font_color", C_Gray);
 				cvb.AddChild(n);
-				var s = new Label { Text = "[已拥有] " + it[1] };
+				var s = new Label { Text = it[1] };
 				s.AddThemeFontSizeOverride("font_size", 12);
-				s.AddThemeColorOverride("font_color", C_Green);
+				s.AddThemeColorOverride("font_color", new Color("6a6a6a"));
 				cvb.AddChild(s);
 				grid.AddChild(card);
 			}

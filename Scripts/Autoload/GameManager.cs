@@ -184,7 +184,21 @@ namespace NiubilityIdle.Autoload
         {
             double inc = 0;
             for (int i = 0; i < Save.game.unlocked; i++) inc += GetSpeed(i) * GetEffectiveMult(i);
-            return new BigDouble(inc, 0);
+            return new BigDouble(inc, 0) * GetBoostMult();
+        }
+
+        // ── 商店增益:每级全局产出 ×2,价格 ×100 递增 ──
+        public double GetBoostMult() => System.Math.Pow(2, Save.game.boostLevel);
+        public BigDouble GetBoostCost() => new BigDouble(1e6 * System.Math.Pow(100, Save.game.boostLevel), 0);
+
+        public bool TryBuyBoost()
+        {
+            var cost = GetBoostCost();
+            if (Save.game.score < cost) return false;
+            Save.game.score -= cost;
+            Save.game.boostLevel++;
+            SaveGame();
+            return true;
         }
 
         // ── 转生:转生窗口点 5 次执行(原版"点击 5 次进行转生") ──
