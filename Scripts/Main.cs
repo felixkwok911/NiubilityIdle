@@ -98,6 +98,7 @@ namespace NiubilityIdle
 		private Label _fluxBig;
 		private Label _infBig;
 		private Label _treeBig;
+		private Label _unityBig;
 		private readonly List<TextureRect> _menuIcons = new();
 		private Panel _progressFill;
 		private Label _progressLbl;
@@ -255,6 +256,7 @@ namespace NiubilityIdle
 			if (_fluxBig != null) _fluxBig.Text = Suf(g.game.timeFlux) + (g.game.boostTime > 0 ? $"  (加速中 ×2,剩 {g.game.boostTime:0}s)" : "");
 			if (_infBig != null) _infBig.Text = Suf(g.infinity.infinityPoints);
 			if (_treeBig != null) _treeBig.Text = Suf(g.infinity.infinityPoints);
+			if (_unityBig != null) _unityBig.Text = Suf(g.game.unityShards);
 		}
 
 		private void Toast(string msg)
@@ -495,7 +497,7 @@ namespace NiubilityIdle
 			// 旧页控件即将释放,先断开动态刷新引用,避免 _Process 访问已释放对象
 			_scoreLbl = null; _gainLbl = null; _perRevLbl = null;
 			_prestigeExpLbl = null; _prestigeMultLbl = null; _prestigeClickLbl = null;
-			_promoLbl = null; _autoLbl = null; _fluxBig = null; _infBig = null; _treeBig = null;
+			_promoLbl = null; _autoLbl = null; _fluxBig = null; _infBig = null; _treeBig = null; _unityBig = null;
 			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear();
 			for (int i = 0; i < _menuRows.Count; i++)
 				_menuRows[i].AddThemeStyleboxOverride("panel",
@@ -1003,14 +1005,14 @@ namespace NiubilityIdle
 			vb.AddChild(MilestoneGrid("永恒里程碑 · 20/20", 10, new Color("f5d43c")));
 			vb.AddChild(MilestoneGrid("动物里程碑 · 10/10", 5, new Color("ef8b33")));
 			vb.AddChild(Card("自动永恒", new[] { "autoEternity:开 · 达到阈值自动永恒并保留全部里程碑" }));
-			var eteBtn = MakeTextButton("执 行 永 恒 (需 IP 1e12)", new Color("f5d43c"), new Color("2a230a"), 0, 44, 20);
+			var eteBtn = MakeTextButton("执 行 永 恒 (需无限 100 次)", new Color("f5d43c"), new Color("2a230a"), 0, 44, 20);
 			eteBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 			eteBtn.Pressed += () =>
 			{
 				if (GM().DoEternity())
 					Toast("永恒成功，EP 已发放");
 				else
-					Toast("无限点数未达到 1e12");
+					Toast($"无限次数不足 100(当前 {Suf(GM().Save.infinity.infinities)})");
 				ShowMenu(_curMenu);
 			};
 			vb.AddChild(eteBtn);
@@ -1020,10 +1022,49 @@ namespace NiubilityIdle
 		private Control BuildUnityPage()
 		{
 			var g = SD();
-			var page = (ScrollContainer)PageShell("统一 Unity", Suf(g.game.unityShards), "统一碎片 · 矿物 " + Suf(g.game.minerals), new Color("9a4dd8"));
+			var page = (ScrollContainer)PageShell("统一 Unity", Suf(g.game.unityShards), "统一碎片(由 eters 自动积累) · 矿物 " + Suf(g.game.minerals), new Color("9a4dd8"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			vb.AddChild(Card("自动统一", new[] { "autoUnity:开 · autoMinMerge:开(矿物自动合并)" }));
-			vb.AddChild(MilestoneGrid("统一节点", 6, new Color("9a4dd8")));
+			_unityBig = (Label)vb.GetChild(1);
+
+			vb.AddChild(SmallLine("统一升级(消耗统一碎片,永久生效)", 17, new Color("9a4dd8")));
+			var grid = new GridContainer { Columns = 2 };
+			grid.AddThemeConstantOverride("h_separation", 10);
+			grid.AddThemeConstantOverride("v_separation", 10);
+			string[][] nodes =
+			{
+				new[] { "碎片产出 +50%", "每级:统一碎片积累速度 +50%" },
+				new[] { "全局产出 +25%", "每级:所有产出 +25%" },
+			};
+			for (int i = 0; i < nodes.Length; i++)
+			{
+				int node = i;
+				var card = new PanelContainer { CustomMinimumSize = new Vector2(310, 100), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+				card.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+				var mv = new MarginContainer();
+				mv.AddThemeConstantOverride("margin_left", 12); mv.AddThemeConstantOverride("margin_top", 8);
+				mv.AddThemeConstantOverride("margin_right", 12); mv.AddThemeConstantOverride("margin_bottom", 8);
+				card.AddChild(mv);
+				var cvb = new VBoxContainer(); cvb.AddThemeConstantOverride("separation", 4); mv.AddChild(cvb);
+				var n = new Label { Text = $"{nodes[i][0]} (Lv{GM().UnityLevel(node)})" };
+				n.AddThemeFontSizeOverride("font_size", 15);
+				n.AddThemeColorOverride("font_color", C_White);
+				cvb.AddChild(n);
+				var ds = new Label { Text = nodes[i][1] };
+				ds.AddThemeFontSizeOverride("font_size", 11);
+				ds.AddThemeColorOverride("font_color", C_Gray);
+				cvb.AddChild(ds);
+				var b = MakeTextButton($"升级 {Suf(GM().GetUnityCost(node))} 碎片", new Color("9a4dd8"), new Color("1e0a2a"), 0, 28, 12);
+				b.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+				b.Pressed += () =>
+				{
+					if (GM().TryBuyUnity(node)) Toast($"统一升级到 Lv{GM().UnityLevel(node)}");
+					else Toast($"碎片不足,需要 {Suf(GM().GetUnityCost(node))}");
+					ShowMenu(_curMenu);
+				};
+				cvb.AddChild(b);
+				grid.AddChild(card);
+			}
+			vb.AddChild(grid);
 			return page;
 		}
 
@@ -1200,12 +1241,65 @@ namespace NiubilityIdle
 			bvb.AddChild(bb);
 			grid.AddChild(boost);
 
+			// 遗物:转生次数解锁,永久圈速加成
+			var relic = new PanelContainer { CustomMinimumSize = new Vector2(280, 96), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+			relic.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+			var rmv = new MarginContainer();
+			rmv.AddThemeConstantOverride("margin_left", 12); rmv.AddThemeConstantOverride("margin_top", 8);
+			rmv.AddThemeConstantOverride("margin_right", 12); rmv.AddThemeConstantOverride("margin_bottom", 8);
+			relic.AddChild(rmv);
+			var rvb = new VBoxContainer(); rvb.AddThemeConstantOverride("separation", 4); rmv.AddChild(rvb);
+			var rn = new Label { Text = $"时之遗物 (Lv{GM().RelicLevel})" };
+			rn.AddThemeFontSizeOverride("font_size", 16);
+			rn.AddThemeColorOverride("font_color", C_White);
+			rvb.AddChild(rn);
+			var rs = new Label { Text = $"全部圈速 +10%/级 · 价格 {Suf(GM().GetRelicCost())} ⊙ (需转生 5 次)" };
+			rs.AddThemeFontSizeOverride("font_size", 12);
+			rs.AddThemeColorOverride("font_color", g.game.prestigeCount >= 5 && g.game.score >= GM().GetRelicCost() ? C_Green : C_Gray);
+			rvb.AddChild(rs);
+			var rb = MakeTextButton("购 买", new Color("f5a623"), new Color("3a2506"), 0, 30, 14);
+			rb.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			rb.Pressed += () =>
+			{
+				if (GM().TryBuyRelic()) Toast($"时之遗物升级到 Lv{GM().RelicLevel}!圈速 +10%");
+				else if (g.game.prestigeCount < 5) Toast("遗物需要转生 5 次解锁");
+				else Toast($"分数不足,需要 {Suf(GM().GetRelicCost())}");
+				ShowMenu(_curMenu);
+			};
+			rvb.AddChild(rb);
+			grid.AddChild(relic);
+
+			// 塔罗抽卡:花分数随机收集 22 张,每张 +5% 产出
+			var tarot = new PanelContainer { CustomMinimumSize = new Vector2(280, 96), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+			tarot.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+			var tmv = new MarginContainer();
+			tmv.AddThemeConstantOverride("margin_left", 12); tmv.AddThemeConstantOverride("margin_top", 8);
+			tmv.AddThemeConstantOverride("margin_right", 12); tmv.AddThemeConstantOverride("margin_bottom", 8);
+			tarot.AddChild(tmv);
+			var tvb = new VBoxContainer(); tvb.AddThemeConstantOverride("separation", 4); tmv.AddChild(tvb);
+			var tn = new Label { Text = $"塔罗抽卡 ({GM().TarotCount}/22)" };
+			tn.AddThemeFontSizeOverride("font_size", 16);
+			tn.AddThemeColorOverride("font_color", C_White);
+			tvb.AddChild(tn);
+			var ts = new Label { Text = $"每张全局产出 +5%,集齐额外 ×2 · 抽一次 {Suf(GM().GetTarotCost())} ⊙" };
+			ts.AddThemeFontSizeOverride("font_size", 12);
+			ts.AddThemeColorOverride("font_color", g.game.score >= GM().GetTarotCost() ? C_Green : C_Gray);
+			tvb.AddChild(ts);
+			var tb = MakeTextButton("抽 卡", new Color("9a4dd8"), C_White, 0, 30, 14);
+			tb.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			tb.Pressed += () =>
+			{
+				int got = GM().TryDrawTarot();
+				Toast(got >= 0 ? $"抽到塔罗 {got + 1} 号!产出 +5%" : (GM().TarotCount >= GameManager.TarotTotal ? "塔罗已集齐!" : $"分数不足,需要 {Suf(GM().GetTarotCost())}"));
+				ShowMenu(_curMenu);
+			};
+			tvb.AddChild(tb);
+			grid.AddChild(tarot);
+
 			// 待开放项(原版后期系统)
 			string[][] locked =
 			{
-				new[] { "遗物商店", "解锁自动化后开放" },
 				new[] { "符文商店", "转生 10 次后开放" },
-				new[] { "塔罗抽卡", "永恒后开放" },
 				new[] { "星之祝福", "统一后开放" },
 				new[] { "奇点礼包", "无限 100 次后开放" },
 			};

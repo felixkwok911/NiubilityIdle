@@ -110,8 +110,8 @@ namespace NiubilityIdle.Autoload
         }
 
         // Revolution.speed:圈/秒 = 等级 × 0.2/(i+1)(原版左条 [+0.2]..[+0.02])
-        public double GetSpeed(int idx) => idx >= Save.game.unlocked ? 0 : Level(idx) * 0.2 / (idx + 1) * GetSpeedTree();
-        public double GetSpeedInc(int idx) => 0.2 / (idx + 1) * GetSpeedTree();
+        public double GetSpeed(int idx) => idx >= Save.game.unlocked ? 0 : Level(idx) * 0.2 / (idx + 1) * GetSpeedTree() * GetRelicSpeed();
+        public double GetSpeedInc(int idx) => 0.2 / (idx + 1) * GetSpeedTree() * GetRelicSpeed();
 
         // 兼容 UI 旧名
         public double GetRate(int idx) => GetSpeed(idx);
@@ -191,6 +191,12 @@ namespace NiubilityIdle.Autoload
             g.playTime += delta;
             g.timeFlux += new BigDouble(delta, 0);     // 时间流量:随游戏时间积累
             if (g.boostTime > 0) g.boostTime = System.Math.Max(0, g.boostTime - delta);
+            // 统一层:eters 持续产生统一碎片(EP 越多 eters 涨越快)
+            if (Save.eternity.EP.CompareTo(BigDouble.Zero) > 0)
+            {
+                Save.eternity.eters += Save.eternity.EP * delta * 0.01;
+                g.unityShards += Save.eternity.eters * delta * 0.05 * GetShardMult();
+            }
             while (g.circleLevels.Count < g.unlocked) g.circleLevels.Add(0);
             while (g.revProgress.Count < g.unlocked) g.revProgress.Add(0);
 
@@ -270,6 +276,8 @@ namespace NiubilityIdle.Autoload
             for (int i = 0; i < Save.game.unlocked; i++) inc += GetSpeed(i) * GetEffectiveMult(i);
             double boost = System.Math.Pow(2, Save.game.boostLevel);        // 商店增益
             boost *= System.Math.Pow(2, TreeLevel(0));                      // 无限树:全局产出
+            boost *= GetUnityMult();                                        // 统一升级
+            boost *= GetTarotMult();                                        // 塔罗收集
             boost *= 1.0 + Save.eternity.EP.ToDouble() * 0.1;               // 永久:EP 加成
             if (Save.game.boostTime > 0) boost *= 2;                        // 时间流量加速
             return new BigDouble(inc, 0) * boost;
@@ -398,6 +406,63 @@ namespace NiubilityIdle.Autoload
             Save.infinity.treeLevels = new List<int>();
             SaveGame();
             return true;
+        }
+
+        // ── 统一(Unity):eters 自动积累统一碎片,碎片买永久统一升级 ──
+        public double GetUnityMult() => 1.0 + 0.25 * UnityLevel(1);   // node1:全局产出 +25%/级
+        public double GetShardMult() => 1.0 + 0.5 * UnityLevel(0);    // node0:碎片产出 +50%/级
+        public int UnityLevel(int node) => node < Save.game.unityLevels.Count ? Save.game.unityLevels[node] : 0;
+        public BigDouble GetUnityCost(int node) => new BigDouble(10.0 * System.Math.Pow(25, node) * System.Math.Pow(3, UnityLevel(node)), 0);
+
+        public bool TryBuyUnity(int node)
+        {
+            if (node < 0 || node > 1) return false;
+            var cost = GetUnityCost(node);
+            if (Save.game.unityShards.CompareTo(cost) < 0) return false;
+            Save.game.unityShards -= cost;
+            while (Save.game.unityLevels.Count <= node) Save.game.unityLevels.Add(0);
+            Save.game.unityLevels[node]++;
+            SaveGame();
+            return true;
+        }
+
+        // ── 遗物:转生 5 次解锁,每级全部圈速 +10% ──
+        public int RelicLevel => Save.game.relicLevel;
+        public BigDouble GetRelicCost() => new BigDouble(1e7 * System.Math.Pow(10, Save.game.relicLevel), 0);
+        public double GetRelicSpeed() => 1.0 + 0.1 * Save.game.relicLevel;
+
+        public bool TryBuyRelic()
+        {
+            if (Save.game.prestigeCount < 5) return false;
+            var cost = GetRelicCost();
+            if (Save.game.score < cost) return false;
+            Save.game.score -= cost;
+            Save.game.relicLevel++;
+            SaveGame();
+            return true;
+        }
+
+        // ── 塔罗:花分数抽取,22 张集齐,每张全局产出 +5%,集齐额外 ×2 ──
+        public const int TarotTotal = 22;
+        public int TarotCount => Save.game.tarot.Count;
+        public BigDouble GetTarotCost() => new BigDouble(1e9 * System.Math.Pow(5, TarotCount), 0);
+        public double GetTarotMult()
+        {
+            double m = 1.0 + 0.05 * TarotCount;
+            if (TarotCount >= TarotTotal) m *= 2;
+            return m;
+        }
+
+        public int TryDrawTarot()
+        {
+            var cost = GetTarotCost();
+            if (Save.game.score < cost || TarotCount >= TarotTotal) return -1;
+            Save.game.score -= cost;
+            var pool = Enumerable.Range(0, TarotTotal).Where(id => !Save.game.tarot.Contains(id)).ToList();
+            int got = pool[new Random().Next(pool.Count)];
+            Save.game.tarot.Add(got);
+            SaveGame();
+            return got;
         }
 
         public void SaveGame()

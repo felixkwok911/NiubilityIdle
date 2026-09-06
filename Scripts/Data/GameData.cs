@@ -39,6 +39,12 @@ namespace NiubilityIdle.Data
         [JsonProperty] public bool infBroken = false;
         // 商店增益等级:每级全局产出 ×2(原版商店 boost)
         [JsonProperty] public int boostLevel = 0;
+        // 统一升级等级:0=碎片产出×1.5/级 1=全局产出+25%/级
+        [JsonProperty] public List<int> unityLevels = new();
+        // 时之遗物等级:每级全部圈速 +10%(转生 5 次解锁)
+        [JsonProperty] public int relicLevel = 0;
+        // 已收集塔罗牌 id(0..21),每张全局产出 +5%
+        [JsonProperty] public List<int> tarot = new();
         // Revolution.mult:每圈累计倍率(飞升堆出来的,对应原版顶链大数字)
         [JsonProperty] public List<double> revMult = new();
         // 上次保存时间(Unix 秒,离线收益用)
