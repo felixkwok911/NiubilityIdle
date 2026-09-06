@@ -305,7 +305,7 @@ namespace NiubilityIdle
 					_chainXs.Add(x);
 				}
 				var l = new Label { Text = "1", Visible = false };
-				l.AddThemeFontSizeOverride("font_size", 26);
+				l.AddThemeFontSizeOverride("font_size", 30);
 				l.AddThemeColorOverride("font_color", BarCols[i]);
 				bar.AddChild(l);
 				_chainNums.Add(l);
@@ -316,7 +316,7 @@ namespace NiubilityIdle
 			bar.AddChild(px);
 			_chainXs.Add(px);
 			_chainP = new Label { Text = "1", Visible = false };
-			_chainP.AddThemeFontSizeOverride("font_size", 26);
+			_chainP.AddThemeFontSizeOverride("font_size", 30);
 			_chainP.AddThemeColorOverride("font_color", BarCols[9]);
 			bar.AddChild(_chainP);
 			_topBar = bar;
@@ -637,7 +637,7 @@ namespace NiubilityIdle
 			var scoreRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
 			scoreRow.AddThemeConstantOverride("separation", 10);
 			_scoreLbl = new Label { Text = Suf(g.game.score) };
-			_scoreLbl.AddThemeFontSizeOverride("font_size", 34);
+			_scoreLbl.AddThemeFontSizeOverride("font_size", 44);
 			_scoreLbl.AddThemeColorOverride("font_color", C_White);
 			scoreRow.AddChild(_scoreLbl);
 			var odot = new Label { Text = "⊙" };
@@ -1236,14 +1236,12 @@ namespace NiubilityIdle
 				: $"{ts.Hours}小时{ts.Minutes}分{ts.Seconds}秒";
 		}
 	}
-
-	// ═══════════════════════════════════════════════════════════
-	// 中央轨道：每圈一条常驻细环,亮色粗弧 = 该圈转圈进度(原版机制)
-	// progress 0->1 对应弧长 0->整圈,转满一圈产出并清零,与产出完全同步
-	// ═══════════════════════════════════════════════════════════
+	// ========================================================
+	// Orbit: 11 ring tracks laid out like the original,
+	// bright thick arc = spin progress (radius 0.115..0.26 of min)
+	// ========================================================
 	public partial class OrbitView : Control
 	{
-		// 原版：一圈一环静态细轨道（内红外紫）+ 进度亮弧
 		private static readonly Color[] TrackCols =
 		{
 			new("d42020"), new("e07800"), new("e8cc00"), new("27ae60"), new("00d696"),
@@ -1264,32 +1262,34 @@ namespace NiubilityIdle
 
 			var c = new Vector2(Size.X / 2f, Size.Y / 2f);
 			float min = Math.Min(Size.X, Size.Y);
-			float baseR = min * 0.10f;
-			float step = min * 0.032f;
 
-			// 中心红心
-			DrawCircle(c, baseR * 0.78f, new Color("8f1f16"));
-			DrawCircle(c, baseR * 0.56f, new Color("e8483f"));
+			// red core (original scale)
+			DrawCircle(c, min * 0.048f, new Color("8f1f16"));
+			DrawCircle(c, min * 0.036f, new Color("e8483f"));
 
-			int n = Math.Min(g.game.unlocked, TrackCols.Length);
-			for (int i = 0; i < n; i++)
+			// all 11 ring tracks always visible (locked = empty track)
+			for (int i = 0; i < TrackCols.Length; i++)
 			{
-				float r = baseR + step * (i + 1) + min * 0.004f;
+				float r = min * (0.13f + 0.40f * i / (TrackCols.Length - 1));
 				var trackCol = TrackCols[i];
-				trackCol.A = 0.4f;
-				DrawArc(c, r, 0, Mathf.Tau, 128, trackCol, 5f, true);
+				bool unlockedRing = i < g.game.unlocked;
+				trackCol.A = unlockedRing ? 0.55f : 0.35f;
+				DrawArc(c, r, 0, Mathf.Tau, 160, trackCol, 5f, true);
 
-				// 亮色进度弧:弧长 = 转圈进度
-				double prog = i < g.game.revProgress.Count ? g.game.revProgress[i] : 0;
-				prog = Math.Clamp(prog, 0, 1);
-				if (prog > 0.002)
+				// bright progress arc, round cap
+				if (unlockedRing)
 				{
-					float sweep = (float)prog * Mathf.Tau;
-					float start = -Mathf.Pi / 2f;
-					var col = TrackCols[i];
-					DrawArc(c, r, start, start + sweep, 128, col, 9f, true);
-					float ae = start + sweep;
-					DrawCircle(c + new Vector2(MathF.Cos(ae), MathF.Sin(ae)) * r, 4.5f, col);
+					double prog = i < g.game.revProgress.Count ? g.game.revProgress[i] : 0;
+					prog = Math.Clamp(prog, 0, 1);
+					if (prog > 0.002)
+					{
+						float sweep = (float)prog * Mathf.Tau;
+						float start = -Mathf.Pi / 2f;
+						var col = TrackCols[i];
+						DrawArc(c, r, start, start + sweep, 160, col, 9f, true);
+						float ae = start + sweep;
+						DrawCircle(c + new Vector2(MathF.Cos(ae), MathF.Sin(ae)) * r, 5f, col);
+					}
 				}
 			}
 		}
