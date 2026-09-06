@@ -2,68 +2,245 @@ using Godot;
 using NiubilityIdle.Data;
 using NiubilityIdle.Core;
 using Newtonsoft.Json;
+using System;
+using System.Collections.Generic;
 using System.IO;
 
 namespace NiubilityIdle.Autoload
 {
-    // 独立工程的单例，对应原游戏 GameController:2136 + SaveController:2180
+    // 核心循环,对应原游戏 GameController + Revolution.Update + Buyable:
+    //   - 每圈有转圈进度(Revolution.progress 0..maxProgress),转满一圈产出 mult × 转生倍率
+    //   - 圈速 = 等级 × 0.2/(i+1) 圈/秒(圈1 Lv80 = 16 圈/秒,对齐原版左条显示)
+    //   - 价格沿 Buyable(baseCost, costInc) 指数增长,外圈巨贵
+    //   - 圈从 1 个逐渐解锁到 11 个(上一圈 Lv>=10 解锁下一圈)
+    //   - 转生:转生窗口点 5 次执行,倍率跳涨;无限:1.79e308
     public partial class GameManager : Node
     {
         public static GameManager Instance { get; private set; }
         public SaveData Save { get; private set; } = new();
         public string SavePath => OS.GetUserDataDir() + "/save.json";
 
+        public const int MaxCircles = 11;
+
+        // 成就定义:id/名称/描述/检查(原版 GameData.UnlockAchievement + GetAchievementName/Desc)
+        public static readonly (int id, string name, string desc, Func<SaveData, bool> check)[] AchDefs =
+        {
+            (1, "初次购买", "购买任意圆圈等级", s => s.game.circleLevels.Exists(l => l > 1)),
+            (2, "圈 2 解锁", "圆圈 1 达到 Lv10", s => s.game.unlocked >= 2),
+            (3, "初次转生", "完成一次转生", s => s.game.prestigeCount >= 1),
+            (4, "转生常客", "完成 5 次转生", s => s.game.prestigeCount >= 5),
+            (5, "半程无限", "距离无限进度 50%", s => s.game.score.exponent >= 154),
+            (6, "分数破亿", "分数达到 100,000,000", s => s.game.score.exponent >= 8),
+            (7, "时间领主", "时间流量积累 60 秒", s => s.game.timeFlux.CompareTo(new BigDouble(60, 0)) >= 0),
+            (8, "全自动", "开启自动买圈", s => s.game.autoBuy),
+            (9, "圈 5 解锁", "解锁圆圈 5", s => s.game.unlocked >= 5),
+            (10, "十连轮转", "全部 10 圈同时转动", s => s.game.unlocked >= 10),
+            (11, "无限启程", "完成第一次无限", s => s.infinity.infinities >= BigDouble.One),
+            (12, "永恒瞬间", "获得第一点 EP", s => s.eternity.EP >= BigDouble.One),
+        };
+
         public override void _Ready()
         {
             Instance = this;
             Load();
-            // 初始状态开局：无存档则 8 圈 Lv0 起步，可完整体验成长过程
-            // 完全体演示改走调试入口 UnlockAllMaxOut()，不再自动覆盖
-            if (Save.game.circleLevels.Count == 0)
-            {
-                ResetToNewGame();
-            }
-            GD.Print($"[NiubilityIdle_Godot] Score {Save.game.score} | IP {Save.infinity.infinityPoints} | EP {Save.eternity.EP}");
+            if (Save.game.circleLevels.Count == 0) ResetToNewGame();
+            GD.Print($"[NiubilityIdle] start | score {Save.game.score} | circles {Save.game.unlocked}");
         }
 
         public void ResetToNewGame()
         {
             Save = new SaveData();
-            for (int i = 0; i < 8; i++) { Save.game.circleLevels.Add(0); Save.game.circleCosts.Add(GetCircleCost(i, 0)); }
+            Save.game.circleLevels.Add(1);   // 圈1 开局 Lv1(原版教学开局)
+            Save.game.unlocked = 1;
             SaveGame();
         }
 
-        public static BigDouble GetCircleCost(int idx, int lv) => new BigDouble(10 * (idx + 1), 0) * System.Math.Pow(1.5, lv);
+        public int Level(int idx) => idx >= 0 && idx < Save.game.circleLevels.Count ? Save.game.circleLevels[idx] : 0;
+
+        // ── Buyable(baseCost, costInc):价格指数曲线 ──
+        public static BigDouble GetCircleCost(int idx, int lv)
+        {
+            double baseCost = 5.0 * System.Math.Pow(60.0, idx);
+            return new BigDouble(baseCost, 0) * System.Math.Pow(1.4, lv);
+        }
+
+        // Revolution.speed:圈/秒 = 等级 × 0.2/(i+1)(原版左条 [+0.2]..[+0.02])
+        public double GetSpeed(int idx) => idx >= Save.game.unlocked ? 0 : Level(idx) * 0.2 / (idx + 1);
+        public double GetSpeedInc(int idx) => 0.2 / (idx + 1);
+
+        // 兼容 UI 旧名
+        public double GetRate(int idx) => GetSpeed(idx);
+        public double GetPreview(int idx) => Save.game.bulkBuy * GetSpeedInc(idx);
+        public double GetLapTime() => System.Math.Max(0.4, 1.0 / System.Math.Max(0.05, GetSpeed(0)));
+        public BigDouble GetLapGain() => CalculateGainPerSecond() * GetLapTime();
+
+        // Revolution.mult:转一圈基础产出,靠转生倍率放大
+        public double GetMult(int idx) => System.Math.Pow(4, idx);
+        public double GetEffectiveMult(int idx) => GetMult(idx) * Save.game.prestigeMult;
+
+        public BigDouble GetBulkCost(int idx)
+        {
+            int lv = Level(idx);
+            BigDouble total = BigDouble.Zero;
+            for (int k = 0; k < Save.game.bulkBuy; k++) total += GetCircleCost(idx, lv + k);
+            return total;
+        }
 
         public bool TryBuyCircle(int idx)
         {
-            while (Save.game.circleLevels.Count <= idx) Save.game.circleLevels.Add(0);
-            while (Save.game.circleCosts.Count <= idx) Save.game.circleCosts.Add(GetCircleCost(idx, 0));
-            var cost = GetCircleCost(idx, Save.game.circleLevels[idx]);
+            if (idx >= Save.game.unlocked) return false;
+            var cost = GetBulkCost(idx);
             if (Save.game.score < cost) return false;
             Save.game.score -= cost;
-            Save.game.circleLevels[idx]++;
-            Save.game.circleCosts[idx] = GetCircleCost(idx, Save.game.circleLevels[idx]);
+            while (Save.game.circleLevels.Count <= idx) Save.game.circleLevels.Add(0);
+            Save.game.circleLevels[idx] += Save.game.bulkBuy;
             SaveGame();
             return true;
         }
 
-        public bool DoPrestige()
+        // 批量档 1 -> 10 -> 100 -> 1
+        public void CycleBulk()
         {
-            if (Save.game.score < BigDouble.FromDouble(1e6)) return false;
-            var gain = BigDouble.FromDouble(System.Math.Log10(System.Math.Max(1, Save.game.score.ToDouble())) * 0.5);
-            Save.game.souls += gain;
-            Save.game.score = BigDouble.Zero;
-            Save.game.prestigeCount++;
+            Save.game.bulkBuy = Save.game.bulkBuy >= 100 ? 1 : Save.game.bulkBuy * 10;
             SaveGame();
-            return true;
         }
 
+        // 每帧驱动,对应原版 Revolution.Update:转圈进度满一圈产出一次
+        public override void _Process(double delta)
+        {
+            var g = Save.game;
+            g.playTime += delta;
+            g.timeFlux += new BigDouble(delta, 0);     // 时间流量:随游戏时间积累
+            while (g.circleLevels.Count < g.unlocked) g.circleLevels.Add(0);
+            while (g.revProgress.Count < g.unlocked) g.revProgress.Add(0);
+
+            for (int i = 0; i < g.unlocked; i++)
+            {
+                double speed = GetSpeed(i);
+                if (speed <= 0) continue;
+                g.revProgress[i] += speed * delta;
+                if (g.revProgress[i] >= 1)
+                {
+                    int laps = (int)g.revProgress[i];
+                    g.revProgress[i] -= laps;
+                    var gain = new BigDouble(GetEffectiveMult(i), 0) * laps;
+                    g.score += gain;
+                    g.totalScore += gain;
+                }
+            }
+
+            // 自动买圈:从最便宜的可买圈开始买(自动化系统)
+            if (g.autoBuy)
+            {
+                for (int i = g.unlocked - 1; i >= 0; i--)
+                {
+                    if (g.score >= GetBulkCost(i) * 2) { TryBuyCircle(i); break; }
+                }
+            }
+
+            // 解锁:上一圈 Lv>=10 解锁下一圈(原版逐圈解锁)
+            if (g.unlocked < MaxCircles && Level(g.unlocked - 1) >= 10)
+            {
+                g.unlocked++;
+                SaveGame();
+            }
+
+            // 无限:1.79e308(原版阈值)
+            if (!g.infBroken && g.score.exponent >= 308 && g.score.mantissa > 1.79)
+            {
+                g.infBroken = true;
+                TryInfinity();
+            }
+
+            CheckAchievements();
+            if (Engine.GetFramesDrawn() % 600 == 0) SaveGame();
+        }
+
+        // 成就检查:满足即解锁(原版 UnlockAchievement)
+        public event Action<int> AchievementUnlocked;
+        private void CheckAchievements()
+        {
+            foreach (var a in AchDefs)
+            {
+                if (Save.game.unlockedAch.Contains(a.id)) continue;
+                if (a.check(Save))
+                {
+                    Save.game.unlockedAch.Add(a.id);
+                    AchievementUnlocked?.Invoke(a.id);
+                    SaveGame();
+                }
+            }
+        }
+
+        public bool HasAch(int id) => Save.game.unlockedAch.Contains(id);
+
+        public void ToggleAutoBuy()
+        {
+            Save.game.autoBuy = !Save.game.autoBuy;
+            SaveGame();
+        }
+
+        public BigDouble CalculateGainPerSecond()
+        {
+            double inc = 0;
+            for (int i = 0; i < Save.game.unlocked; i++) inc += GetSpeed(i) * GetEffectiveMult(i);
+            return new BigDouble(inc, 0);
+        }
+
+        // ── 转生:转生窗口点 5 次执行(原版"点击 5 次进行转生") ──
+        public bool PrestigeClick()
+        {
+            Save.game.prestigeClicks++;
+            if (Save.game.prestigeClicks >= 5)
+            {
+                Save.game.prestigeClicks = 0;
+                DoPrestige();
+                return true;
+            }
+            SaveGame();
+            return false;
+        }
+
+        public void DoPrestige()
+        {
+            var g = Save.game;
+            // 倍率增量 ≈ 10^((exp-6)/2):1e9 分 -> +1e3,近似原版 x65 -> x93,501 的跳涨
+            if (g.score.exponent > 6)
+                g.prestigeMult += System.Math.Pow(10, (g.score.exponent - 6) * 0.5);
+            g.prestigeExp += 0.01;
+            g.prestigeCount++;
+            g.score = BigDouble.Zero;
+            g.circleLevels = new List<int> { 1 };
+            g.revProgress = new List<double>();
+            g.unlocked = 1;
+            SaveGame();
+        }
+
+        // 转生窗口预览:当前倍率 -> 转生后倍率
+        public double GetPrestigePreview()
+        {
+            var g = Save.game;
+            double add = g.score.exponent > 6 ? System.Math.Pow(10, (g.score.exponent - 6) * 0.5) : 0;
+            return g.prestigeMult + add;
+        }
+
+        // 晋升(promotion):转生 5 次后可用
         public bool DoPromote()
         {
             if (Save.game.prestigeCount < 5) return false;
             while (Save.game.promotionLevels.Count < 4) Save.game.promotionLevels.Add(1);
             for (int i = 0; i < Save.game.promotionLevels.Count; i++) Save.game.promotionLevels[i]++;
+            SaveGame();
+            return true;
+        }
+
+        public bool TryInfinity()
+        {
+            if (Save.game.score.exponent < 308) return false;
+            Save.infinity.infinities += BigDouble.One;
+            Save.infinity.infinityPoints += new BigDouble(1, Save.game.prestigeCount);
+            Save.game.score = BigDouble.Zero;
+            GD.Print($"Infinity! total {Save.infinity.infinities}");
             SaveGame();
             return true;
         }
@@ -77,81 +254,6 @@ namespace NiubilityIdle.Autoload
             Save.infinity.infinities = BigDouble.Zero;
             Save.infinity.infinityPoints = BigDouble.Zero;
             SaveGame();
-            return true;
-        }
-
-        public void UnlockAllMaxOut()
-        {
-            // 11圈全满 Lv30(原版 11 条产量条),并填充购买价格
-            Save.game.circleLevels.Clear();
-            for (int i = 0; i < 11; i++) Save.game.circleLevels.Add(30);
-            Save.game.circleCosts.Clear();
-            for (int i = 0; i < 11; i++) Save.game.circleCosts.Add(new BigDouble(2.7 * (i + 1), 3 * i + 6));
-            Save.game.score = new BigDouble(9.99, 308);
-            Save.game.totalScore = new BigDouble(9.99, 310);
-            Save.game.prestigeCount = 99;
-            Save.game.souls = new BigDouble(9.99, 12);
-            Save.game.timeFlux = new BigDouble(9.99, 9);
-            Save.game.promotionLevels = new System.Collections.Generic.List<int> { 99, 99, 99, 99 };
-            Save.game.unityShards = new BigDouble(9.99, 18);
-            Save.game.minerals = new BigDouble(9.99, 15);
-            Save.game.allUnlocked = true;
-            var autos = new[]{"autoAll","autoPrestige","autoInfinity","autoInfinityIP","autoEternity","autoInfTree","autoSlowdown","autoPromote","autoStar","autoAnimals","autoRP","autoUnity","autoMinMerge","autoBuyRelics","autoBuyRunes","autoTarotDraw","autoSingularity"};
-            Save.game.automation.Clear();
-            foreach (var a in autos) Save.game.automation[a] = true;
-            // Infinity / Eternity 拉满
-            Save.infinity.infinities = new BigDouble(9.99, 6);
-            Save.infinity.infinityPoints = new BigDouble(9.99, 12);
-            Save.infinity.stats.Clear();
-            Save.infinity.stats.Add(new InfinityStat { id = "challenge_all", level = 99 });
-            Save.eternity.EP = new BigDouble(9.99, 18);
-            Save.eternity.eters = new BigDouble(9.99, 15);
-            Save.eternity.eternityMilestones.Clear();
-            Save.eternity.animalMilestones.Clear();
-            for (int i = 0; i < 20; i++) Save.eternity.eternityMilestones.Add(true);
-            for (int i = 0; i < 10; i++) Save.eternity.animalMilestones.Add(true);
-            Save.version = "1.0.0-godot-max";
-        }
-
-        public override void _Process(double delta)
-        {
-            Save.game.playTime += delta;
-            // 核心挂机：每秒按 circleLevels 产出
-            var gain = CalculateGainPerSecond();
-            Save.game.score += gain * delta;
-            Save.game.totalScore += gain * delta;
-            // 自动保存
-            if (Engine.GetFramesDrawn() % 600 == 0) SaveGame();
-        }
-
-        public BigDouble CalculateGainPerSecond()
-        {
-            // 简化公式：每个 circle 等级 * 倍率，原游戏在 GameController:2180 附近
-            double mult = 1;
-            for (int i = 0; i < Save.game.circleLevels.Count; i++)
-                mult += Save.game.circleLevels[i] * (i + 1) * 0.5;
-            // 叠加 Infinity/Eternity 倍率
-            mult *= (1 + Save.infinity.infinityPoints.ToDouble() * 0.1);
-            mult *= (1 + Save.eternity.EP.ToDouble() * 0.2);
-            return new BigDouble(mult, 0);
-        }
-
-        public void AddCircle(int index)
-        {
-            while (Save.game.circleLevels.Count <= index) Save.game.circleLevels.Add(0);
-            Save.game.circleLevels[index]++;
-            GD.Print($"Circle {index} -> Lv{Save.game.circleLevels[index]}");
-        }
-
-        public bool TryInfinity()
-        {
-            // 原游戏 1.79e308 阈值
-            if (Save.game.score.exponent < 308) return false;
-            Save.infinity.infinities += BigDouble.One;
-            Save.infinity.infinityPoints += new BigDouble(1, Save.game.prestigeCount);
-            Save.game.score = BigDouble.Zero;
-            Save.game.prestigeCount++;
-            GD.Print($"Infinity! 总 {Save.infinity.infinities}");
             return true;
         }
 

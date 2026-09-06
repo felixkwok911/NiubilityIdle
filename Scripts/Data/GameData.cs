@@ -21,6 +21,22 @@ namespace NiubilityIdle.Data
         [JsonProperty] public BigDouble unityShards = BigDouble.Zero;
         [JsonProperty] public BigDouble minerals = BigDouble.Zero;
         [JsonProperty] public bool allUnlocked = false;
+        // 转生窗口三行：指数 / 倍率 / 点击计数（原版：点击 5 次进行转生）
+        [JsonProperty] public double prestigeExp = 1.0;
+        [JsonProperty] public double prestigeMult = 1.0;
+        [JsonProperty] public int prestigeClicks = 0;
+        // 批量购买档 1/10/100（原版圈条旁的数字按钮）
+        [JsonProperty] public int bulkBuy = 1;
+        // Revolution.progress:每圈转圈进度 0..1,满一圈产出(原版 Revolution.cs progress/maxProgress)
+        [JsonProperty] public List<double> revProgress = new();
+        // 已解锁圈数:原版从 1 个圈逐渐解锁到 11 个
+        [JsonProperty] public int unlocked = 1;
+        // 已解锁成就 id(原版 unlockedAch List<int>)
+        [JsonProperty] public List<int> unlockedAch = new();
+        // 自动买圈开关(自动化系统第一项)
+        [JsonProperty] public bool autoBuy = false;
+        // 无限达成标记(用于触发一次性提示)
+        [JsonProperty] public bool infBroken = false;
     }
 
     public class InfinityData

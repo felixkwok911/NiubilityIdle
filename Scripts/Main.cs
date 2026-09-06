@@ -83,6 +83,21 @@ namespace NiubilityIdle
 		private Label _scoreLbl;
 		private RichTextLabel _gainLbl;
 		private Label _perRevLbl;
+		// 动态 UI 引用(每帧刷新,对应原版实时刷新行为)
+		private readonly List<Label> _chainNums = new();   // 顶链数字
+		private readonly List<Label> _chainXs = new();     // 顶链 ×
+		private Label _chainP;
+		private readonly List<Label> _barLine1 = new();    // 左条行1 圈/秒
+		private readonly List<Label> _barLine2 = new();    // 左条行2 价格
+		private Label _prestigeExpLbl;
+		private Label _prestigeMultLbl;
+		private Label _prestigeClickLbl;
+		private Label _promoLbl;
+		private Label _autoLbl;
+		private Panel _progressFill;
+		private Label _progressLbl;
+		private Label _progressMarker;
+		private int _lastUnlocked = -1;
 
 		private static GameManager GM() => GameManager.Instance;
 		private static SaveData SD() => GM()?.Save;
@@ -92,6 +107,13 @@ namespace NiubilityIdle
 		{
 			SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 			MouseFilter = MouseFilterEnum.Stop;
+
+			// 成就解锁 toast(原版解锁弹提示)
+			GM().AchievementUnlocked += id =>
+			{
+				var def = Array.Find(GameManager.AchDefs, a => a.id == id);
+				if (def.name != null) Toast($"成就解锁:{def.name}");
+			};
 
 			// 原版观感的关键:原游戏自带的 Oswald-Bold(数字/拉丁) + 雅黑粗体(中文回退)
 			var oswald = new FontFile();
@@ -180,13 +202,21 @@ namespace NiubilityIdle
 			}
 			var g = SD();
 			if (g == null) return;
-            if (_scoreLbl != null) _scoreLbl.Text = Suf(g.game.score);
+
+			// 解锁新圈:重建轮转页(左条多一条/轨道多一环/顶链多一项)
+			if (g.game.unlocked != _lastUnlocked)
+			{
+				_lastUnlocked = g.game.unlocked;
+				if (_curMenu == 0) ShowMenu(0);
+			}
+
+			if (_scoreLbl != null) _scoreLbl.Text = Suf(g.game.score);
             if (_gainLbl != null)
             {
                 var gain = GM().CalculateGainPerSecond();
                 _gainLbl.Clear();
-                _gainLbl.AppendText($"[center]+{Suf(gain)} / 秒[/center]");
-                if (_perRevLbl != null) _perRevLbl.Text = $"转生 x{g.game.prestigeCount} · {Suf(gain)} / 轮转";
+                _gainLbl.AppendText($"[center]+{Suf(gain)}[font_size=15]{g.game.prestigeExp:0.##}[/font_size][/center]");
+                if (_perRevLbl != null) _perRevLbl.Text = $"+{Suf(GM().GetLapGain())} / 轮转";
             }
             if (_progFill != null)
             {
@@ -196,6 +226,20 @@ namespace NiubilityIdle
                 _progFill.AnchorRight = (float)p;
                 if (_progLbl != null) _progLbl.Text = $"距离无限:{p * 100:0.##}%";
             }
+
+			// 实时刷新:顶链 / 左条 / 转生窗口
+			RefreshChain();
+			for (int i = 0; i < _barLine1.Count; i++)
+			{
+				double rate = GM().GetSpeed(i);
+				double inc = GM().GetSpeedInc(i) * g.game.bulkBuy;
+				_barLine1[i].Text = $"圈/秒:{rate:0.##} [+{inc:0.##}]";
+				var cost = GM().GetBulkCost(i);
+				bool canBuy = g.game.score >= cost;
+				_barLine2[i].Text = Suf(cost) + " ⊙";
+				_barLine2[i].AddThemeColorOverride("font_color", canBuy ? new Color("0a3d12") : new Color("111111"));
+			}
+			RefreshPrestigeWindow();
 		}
 
 		private void Toast(string msg)
@@ -211,18 +255,22 @@ namespace NiubilityIdle
 		// ════════════════════════════════════════════════════════
 		private static string Suf(BigDouble v)
 		{
-			// 原版风格: <1e9 用逗号全展开(8,640,916 / 65.45),>=1e9 用后缀(20.7 B / 2.49 No)
+			// <1e9 逗号全展开,小数去尾零(61,332/16.8/0.7)；>=1e9 后缀+空格(28.9 B/2.49 No)
 			if (v.exponent < 9)
 			{
 				double d = v.ToDouble();
-				return d >= 100 ? d.ToString("N0", CultureInfo.InvariantCulture) : d.ToString("F2");
+				return d >= 100 ? d.ToString("N0", CultureInfo.InvariantCulture) : d.ToString("0.##", CultureInfo.InvariantCulture);
 			}
 			int tier = (int)(v.exponent / 3);
 			if (tier < 0 || tier >= Sufs.Length)
 				return $"{v.mantissa:F2}e{v.exponent}";
 			double m = v.mantissa * Math.Pow(10, v.exponent % 3);
-			return m.ToString("F2") + Sufs[tier];
+			return m.ToString("0.##", CultureInfo.InvariantCulture) + " " + Sufs[tier];
 		}
+
+		// 顶链乘数：>=100 取整逗号(6,788)，以下保留小数(20.23 / 2.72 / 1)
+		private static string FmtMult(double m) =>
+			m >= 100 ? Comma((long)m) : m.ToString("0.##", CultureInfo.InvariantCulture);
 
 		private static string Comma(long n) => n.ToString("N0", CultureInfo.InvariantCulture);
 
@@ -241,33 +289,57 @@ namespace NiubilityIdle
 			bar.SetAnchorsPreset(LayoutPreset.TopWide);
 			bar.OffsetTop = 14; bar.OffsetBottom = 100;
 
-			var g = SD();
-			var chain = new List<(string txt, Color col)>();
-			int n = Math.Min(g.game.circleLevels.Count, 10);
-			// 原版风格:倍率从大到小递减,结尾是短数字
-			for (int i = 0; i < n; i++)
+			// Label 池:每帧只改文本,不重建(原版链随解锁数增长,末项是转生倍率)
+			_chainNums.Clear(); _chainXs.Clear();
+			for (int i = 0; i < GameManager.MaxCircles; i++)
 			{
-				long mult = (long)g.game.circleLevels[i] * (11 - i) * 99L;
-				chain.Add((Comma(mult), BarCols[i]));
+				if (i > 0)
+				{
+					var x = new Label { Text = "×", Visible = false };
+					x.AddThemeFontSizeOverride("font_size", 22);
+					x.AddThemeColorOverride("font_color", new Color("6a6a6a"));
+					bar.AddChild(x);
+					_chainXs.Add(x);
+				}
+				var l = new Label { Text = "1", Visible = false };
+				l.AddThemeFontSizeOverride("font_size", 26);
+				l.AddThemeColorOverride("font_color", BarCols[i]);
+				bar.AddChild(l);
+				_chainNums.Add(l);
 			}
-			chain.Add((Comma(g.game.prestigeCount), BarCols[9]));
-
-			for (int i = 0; i < chain.Count; i++)
-			{
-                if (i > 0)
-                {
-                    var x = new Label { Text = "×" };
-                    x.AddThemeFontSizeOverride("font_size", 22);
-                    x.AddThemeColorOverride("font_color", new Color("6a6a6a"));
-                    bar.AddChild(x);
-                }
-                var l = new Label { Text = chain[i].txt };
-                l.AddThemeFontSizeOverride("font_size", 30);
-                l.AddThemeColorOverride("font_color", chain[i].col);
-                bar.AddChild(l);
-			}
+			var px = new Label { Text = "×", Visible = false };
+			px.AddThemeFontSizeOverride("font_size", 22);
+			px.AddThemeColorOverride("font_color", new Color("6a6a6a"));
+			bar.AddChild(px);
+			_chainXs.Add(px);
+			_chainP = new Label { Text = "1", Visible = false };
+			_chainP.AddThemeFontSizeOverride("font_size", 26);
+			_chainP.AddThemeColorOverride("font_color", BarCols[9]);
+			bar.AddChild(_chainP);
 			_topBar = bar;
 			AddChild(bar);
+			RefreshChain();
+		}
+
+		// 顶链实时刷新:数字 = 各圈转一圈产出(mult×转生倍率),末项 = 转生倍率
+		private void RefreshChain()
+		{
+			var g = SD();
+			if (g == null || _chainP == null) return;
+			for (int i = 0; i < _chainNums.Count; i++)
+			{
+				bool vis = i < g.game.unlocked;
+				_chainNums[i].Visible = vis;
+				if (vis)
+					_chainNums[i].Text = FmtMult(GM().GetEffectiveMult(i));
+				int xi = i < _chainXs.Count ? i : -1;
+				if (xi >= 0 && _chainXs[xi] != null)
+					_chainXs[xi].Visible = vis && i > 0;
+			}
+			bool pVis = g.game.prestigeMult > 1;
+			_chainXs[^1].Visible = pVis;
+			_chainP.Visible = pVis;
+			if (pVis) _chainP.Text = FmtMult(g.game.prestigeMult);
 		}
 
 		// ════════════════════════════════════════════════════════
@@ -349,21 +421,51 @@ namespace NiubilityIdle
 				row.GuiInput += ev =>
 				{
 					if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+					{
+						if (MenuLocked(idx)) { Toast("完成第一次无限后解锁"); return; }
 						ShowMenu(idx);
+					}
 				};
 
 				_menuList.AddChild(row);
 				_menuRows.Add(row);
 			}
 			AddChild(side);
+			RefreshMenuLocks();
+		}
+
+		// 原版：无限/无限树/永恒首通无限前挂锁
+		private static bool MenuLocked(int idx)
+		{
+			if (idx < 1 || idx > 3) return false;
+			var s = SD();
+			return s == null || s.infinity.infinities.CompareTo(BigDouble.Zero) <= 0;
+		}
+
+		private void RefreshMenuLocks()
+		{
+			for (int i = 0; i < _menuRows.Count && i < MenuNames.Length; i++)
+			{
+				bool locked = MenuLocked(i);
+				var hb = _menuRows[i].GetChild(0);
+				if (hb.GetChildCount() > 1 && hb.GetChild(1) is Label nameLbl)
+				{
+					nameLbl.Text = locked ? "已锁定" : MenuNames[i];
+					nameLbl.AddThemeColorOverride("font_color", locked ? C_Gray : C_White);
+				}
+			}
 		}
 
 		private void ShowMenu(int idx)
 		{
 			_curMenu = idx;
 			BuildTopMultiplierBar();
+			RefreshMenuLocks();
 			// 旧页控件即将释放,先断开动态刷新引用,避免 _Process 访问已释放对象
 			_scoreLbl = null; _gainLbl = null; _perRevLbl = null;
+			_prestigeExpLbl = null; _prestigeMultLbl = null; _prestigeClickLbl = null;
+			_promoLbl = null; _autoLbl = null;
+			_barLine1.Clear(); _barLine2.Clear();
 			for (int i = 0; i < _menuRows.Count; i++)
 				_menuRows[i].AddThemeStyleboxOverride("panel",
 					Flat(i == idx ? C_Card : new Color(0, 0, 0, 0), 6));
@@ -461,20 +563,18 @@ namespace NiubilityIdle
 			var root = new HBoxContainer { MouseFilter = MouseFilterEnum.Pass };
 			root.AddThemeConstantOverride("separation", 24);
 
-			// ── 左：圆圈产量条堆 ──
+			// ── 左：圆圈产量条堆(只显示已解锁圈,原版从 1 条逐渐增多) ──
 			var stack = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.Fill };
 			stack.CustomMinimumSize = new Vector2(248, 0);
 			stack.SizeFlagsHorizontal = SizeFlags.Fill;
 			stack.AddThemeConstantOverride("separation", 6);
 			var g = SD();
-			for (int i = 0; i < g.game.circleLevels.Count && i < 11; i++)
+			_barLine1.Clear(); _barLine2.Clear();
+			for (int i = 0; i < g.game.unlocked && i < GameManager.MaxCircles; i++)
 			{
 				int idx = i;
-				long lv = g.game.circleLevels[idx];
-				BigDouble cost = idx < g.game.circleCosts.Count ? g.game.circleCosts[idx] : new BigDouble(2.7 * (idx + 1), 3 * idx + 6);
-				double inc = 0.5 * (idx + 1) * (1 + lv * 0.01);
 
-				var bar = new PanelContainer { MouseFilter = MouseFilterEnum.Stop, CustomMinimumSize = new Vector2(0, 54) };
+				var bar = new PanelContainer { MouseFilter = MouseFilterEnum.Stop, CustomMinimumSize = new Vector2(0, 64) };
 				bar.AddThemeStyleboxOverride("panel", Flat(BarCols[idx], 8));
 				var mv = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
 				mv.AddThemeConstantOverride("margin_left", 8);
@@ -482,30 +582,20 @@ namespace NiubilityIdle
 				mv.AddThemeConstantOverride("margin_top", 5);
 				mv.AddThemeConstantOverride("margin_bottom", 5);
 				bar.AddChild(mv);
-				var hb2 = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
-				hb2.AddThemeConstantOverride("separation", 8);
-				mv.AddChild(hb2);
-				var icon2 = new TextureRect
-				{
-					Texture = GD.Load<Texture2D>($"res://Assets/UI/rev{(idx % 10) + 1}.png"),
-					CustomMinimumSize = new Vector2(42, 42),
-					ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-					StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-					MouseFilter = MouseFilterEnum.Ignore,
-				};
-				icon2.SizeFlagsVertical = SizeFlags.ShrinkCenter;
-				hb2.AddChild(icon2);
-				var vb = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore, SizeFlagsHorizontal = SizeFlags.ExpandFill };
+				// 原版：条内两行居中，无左侧图标，费用后跟 ⊙
+				var vb = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
 				vb.AddThemeConstantOverride("separation", 1);
-				hb2.AddChild(vb);
-				var l1 = new Label { Text = $"圈/秒:{(lv * (idx + 1) * 0.5).ToString("0.##")} [+{inc:0.##}]" };
-				l1.AddThemeFontSizeOverride("font_size", 13);
+				mv.AddChild(vb);
+				var l1 = new Label { Text = "圈/秒:0", HorizontalAlignment = HorizontalAlignment.Center };
+				l1.AddThemeFontSizeOverride("font_size", 14);
 				l1.AddThemeColorOverride("font_color", new Color("1a1a1a"));
 				vb.AddChild(l1);
-				var l2 = new Label { Text = Suf(cost) };
-				l2.AddThemeFontSizeOverride("font_size", 15);
+				var l2 = new Label { Text = "", HorizontalAlignment = HorizontalAlignment.Center };
+				l2.AddThemeFontSizeOverride("font_size", 16);
 				l2.AddThemeColorOverride("font_color", new Color("111111"));
 				vb.AddChild(l2);
+				_barLine1.Add(l1);
+				_barLine2.Add(l2);
 				bar.GuiInput += ev =>
 				{
 					if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
@@ -513,7 +603,7 @@ namespace NiubilityIdle
 						if (GM().TryBuyCircle(idx))
 							Toast($"圈 {idx + 1} 升级到 Lv{GM().Save.game.circleLevels[idx]}");
 						else
-							Toast($"分数不足，圈 {idx + 1} 需要 {Suf(GameManager.GetCircleCost(idx, (int)lv))}");
+							Toast($"分数不足，圈 {idx + 1} 需要 {Suf(GM().GetBulkCost(idx))}");
 						ShowMenu(_curMenu);
 					}
 				};
@@ -528,7 +618,7 @@ namespace NiubilityIdle
 			var scoreRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
 			scoreRow.AddThemeConstantOverride("separation", 10);
 			_scoreLbl = new Label { Text = Suf(g.game.score) };
-			_scoreLbl.AddThemeFontSizeOverride("font_size", 40);
+			_scoreLbl.AddThemeFontSizeOverride("font_size", 34);
 			_scoreLbl.AddThemeColorOverride("font_color", C_White);
 			scoreRow.AddChild(_scoreLbl);
 			var odot = new Label { Text = "⊙" };
@@ -544,8 +634,9 @@ namespace NiubilityIdle
 			// 左上 "1" 购买倍率按钮
 			var leftCol = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.Fill };
 			leftCol.SizeFlagsHorizontal = SizeFlags.Fill;
-			var buy = MakeTextButton("1", C_White, new Color("141414"), 40, 38, 20);
-			buy.Pressed += () => Toast("演示:购买倍率 ×1(自动购买已全开)");
+			// 原版批量购买档：1 -> 10 -> 100 -> 1
+			var buy = MakeTextButton(GM().Save.game.bulkBuy.ToString(), C_White, new Color("141414"), 40, 38, 20);
+			buy.Pressed += () => { GM().CycleBulk(); ShowMenu(_curMenu); };
 			var buyWrap = new CenterContainer();
 			buyWrap.CustomMinimumSize = new Vector2(120, 0);
 			buyWrap.AddChild(buy);
@@ -574,10 +665,10 @@ namespace NiubilityIdle
 			};
 			_gainLbl.AddThemeFontSizeOverride("normal_font_size", 28);
 			_gainLbl.BbcodeEnabled = true;
-			_gainLbl.AppendText($"[center]+{Suf(gain)} / 秒[/center]");
+			_gainLbl.AppendText($"[center]+{Suf(gain)}[font_size=15]{g.game.prestigeExp:0.##}[/font_size][/center]");
 			rightCol.AddChild(_gainLbl);
 
-			_perRevLbl = new Label { Text = "+0 / 轮转" };
+			_perRevLbl = new Label { Text = $"+{Suf(GM().GetLapGain())} / 轮转" };
 			_perRevLbl.AddThemeFontSizeOverride("font_size", 22);
 			_perRevLbl.AddThemeColorOverride("font_color", C_White);
 			_perRevLbl.HorizontalAlignment = HorizontalAlignment.Center;
@@ -633,7 +724,6 @@ namespace NiubilityIdle
 
 		private Control BuildPrestigeWindow()
 		{
-			var g = SD();
 			var win = new PanelContainer();
 			win.AddThemeStyleboxOverride("panel", Flat(C_Card, 10));
 			var vb = new VBoxContainer();
@@ -647,26 +737,62 @@ namespace NiubilityIdle
 
 			vb.AddChild(HRule());
 
-			var promo = g.game.promotionLevels;
-			string p0 = promo.Count > 0 ? Comma(promo[0]) : "1";
-			vb.AddChild(SmallLine($"转生指数:^{p0} -> ^{p0}", 15, new Color("d8d8d8")));
-			double pm = 1;
-			foreach (var p in promo) pm *= p;
-			vb.AddChild(SmallLine($"转生倍率:x{Suf(new BigDouble(pm, 0))} -> x{Suf(new BigDouble(pm, 0))}", 15, new Color("d8d8d8")));
-			vb.AddChild(SmallLine($"已转生 {g.game.prestigeCount} 次 · 自动晋升已启用", 13, C_Gray));
+			// 原版三行：转生指数 ^a -> ^b / 转生倍率 xA -> xB / 点击 5 次进行转生
+			_prestigeExpLbl = SmallLine("", 15, new Color("d8d8d8"));
+			_prestigeMultLbl = SmallLine("", 15, new Color("d8d8d8"));
+			_prestigeClickLbl = SmallLine("", 13, C_Gray);
+			vb.AddChild(_prestigeExpLbl);
+			vb.AddChild(_prestigeMultLbl);
+			vb.AddChild(_prestigeClickLbl);
+			RefreshPrestigeWindow();
 
 			var up = MakeTextButton("晋 升", C_Green, new Color("0c2a10"), 0, 44, 22);
 			up.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 			vb.AddChild(up);
 			up.Pressed += () =>
 			{
-				if (GM().DoPromote())
-					Toast("晋升成功， promotion 等级+1");
+				if (GM().PrestigeClick())
+					Toast("转生成功！倍率已提升");
 				else
-					Toast("晋升需要转生 5 次");
+					Toast($"转生点击 {GM().Save.game.prestigeClicks}/5");
 				ShowMenu(_curMenu);
 			};
+
+			// 晋升(promotion):转生 5 次后开放,4 个晋升位逐层 +1(原版"晋升 99·99·99·99")
+			_promoLbl = SmallLine("", 13, new Color("f5d43c"));
+			vb.AddChild(_promoLbl);
+			var promoBtn = MakeTextButton("层 级 晋 升", new Color("f5a623"), new Color("3a2506"), 0, 34, 15);
+			promoBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			vb.AddChild(promoBtn);
+			promoBtn.Pressed += () =>
+			{
+				if (GM().DoPromote()) Toast("晋升成功！全部晋升位 +1");
+				else Toast($"晋升需要 5 次转生(当前 {GM().Save.game.prestigeCount})");
+				ShowMenu(_curMenu);
+			};
+
+			// 自动买圈开关(自动化)
+			_autoLbl = SmallLine("", 13, new Color("8bc94f"));
+			vb.AddChild(_autoLbl);
+			var autoBtn = MakeTextButton("自动买圈:开/关", new Color("555555"), C_White, 0, 30, 13);
+			autoBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			vb.AddChild(autoBtn);
+			autoBtn.Pressed += () => { GM().ToggleAutoBuy(); ShowMenu(_curMenu); };
 			return win;
+		}
+
+		private void RefreshPrestigeWindow()
+		{
+			var g = SD();
+			if (g == null || _prestigeExpLbl == null || _promoLbl == null || _autoLbl == null) return;
+			double exp = g.game.prestigeExp;
+			_prestigeExpLbl.Text = $"转生指数:^{exp:0.##} -> ^{exp + 0.01:0.##}";
+			_prestigeMultLbl.Text = $"转生倍率:x{FmtMult(g.game.prestigeMult)} -> x{FmtMult(GM().GetPrestigePreview())}";
+			_prestigeClickLbl.Text = $"点击 {5 - g.game.prestigeClicks} 次进行转生";
+			var promo = g.game.promotionLevels;
+			string ps = promo.Count == 0 ? "未开放" : string.Join(" · ", promo);
+			_promoLbl.Text = $"晋升 {ps}" + (g.game.prestigeCount >= 5 ? "" : "(转生 5 次开放)");
+			_autoLbl.Text = g.game.autoBuy ? "自动买圈:开(钱够自动升级)" : "自动买圈:关";
 		}
 
 		// ──────────────────────────────────────────────────────
@@ -809,40 +935,27 @@ namespace NiubilityIdle
 
 		private Control BuildAchievementsPage()
 		{
-			string[][] defs =
-			{
-				new[] { "初次轮转", "完成第一次转生" },
-				new[] { "轮转大师", "完成 50 次转生" },
-				new[] { "百转千回", "完成 99 次转生" },
-				new[] { "圈满功成", "8 个圆圈全部 Lv30" },
-				new[] { "无限启程", "完成第一次无限" },
-				new[] { "无限意志", "无限次数达到 1e6" },
-				new[] { "永恒瞬间", "完成第一次永恒" },
-				new[] { "永恒之躯", "集齐 20 个永恒里程碑" },
-				new[] { "动物之友", "集齐 10 个动物里程碑" },
-				new[] { "统一万界", "统一碎片达到 1e18" },
-				new[] { "时间领主", "时间流量达到 1e9" },
-				new[] { "全自动", "解锁全部 17 项自动化" },
-			};
-			var page = (ScrollContainer)PageShell("成就 Achievements", "12 / 12", "全部成就已解锁", new Color("f5d43c"));
+			int done = GM().Save.game.unlockedAch.Count;
+			var page = (ScrollContainer)PageShell("成就 Achievements", $"{done} / {GameManager.AchDefs.Length}", "完成条件自动解锁", new Color("f5d43c"));
 			var vb = (VBoxContainer)page.GetChild(0);
 			var grid = new GridContainer { Columns = 3 };
 			grid.AddThemeConstantOverride("h_separation", 10);
 			grid.AddThemeConstantOverride("v_separation", 10);
-			foreach (var d in defs)
+			foreach (var d in GameManager.AchDefs)
 			{
+				bool has = GM().HasAch(d.id);
 				var card = new PanelContainer { CustomMinimumSize = new Vector2(300, 74), SizeFlagsHorizontal = SizeFlags.ExpandFill };
-				card.AddThemeStyleboxOverride("panel", Flat(new Color("2a3a2c"), 8));
+				card.AddThemeStyleboxOverride("panel", Flat(has ? new Color("2a3a2c") : C_Card2, 8));
 				var mv = new MarginContainer();
 				mv.AddThemeConstantOverride("margin_left", 12); mv.AddThemeConstantOverride("margin_top", 8);
 				mv.AddThemeConstantOverride("margin_right", 12); mv.AddThemeConstantOverride("margin_bottom", 8);
 				card.AddChild(mv);
 				var cvb = new VBoxContainer(); cvb.AddThemeConstantOverride("separation", 3); mv.AddChild(cvb);
-				var n = new Label { Text = "[已解锁] " + d[0] };
+				var n = new Label { Text = (has ? "[已解锁] " : "[未解锁] ") + d.name };
 				n.AddThemeFontSizeOverride("font_size", 15);
-				n.AddThemeColorOverride("font_color", C_Green);
+				n.AddThemeColorOverride("font_color", has ? C_Green : C_Gray);
 				cvb.AddChild(n);
-				var ds = new Label { Text = d[1] };
+				var ds = new Label { Text = d.desc };
 				ds.AddThemeFontSizeOverride("font_size", 12);
 				ds.AddThemeColorOverride("font_color", C_Gray);
 				cvb.AddChild(ds);
@@ -1076,49 +1189,59 @@ namespace NiubilityIdle
 	}
 
 	// ═══════════════════════════════════════════════════════════
-	// 中央轨道动画：红心 + 8 条彩色旋转弧线(原版标志性视觉)
+	// 中央轨道：每圈一条常驻细环,亮色粗弧 = 该圈转圈进度(原版机制)
+	// progress 0->1 对应弧长 0->整圈,转满一圈产出并清零,与产出完全同步
 	// ═══════════════════════════════════════════════════════════
 	public partial class OrbitView : Control
 	{
-		private float _t;
-		// 原版:9 条长短参差的彩色弧线,由内到外 黄绿青蓝紫品红粉白
-		private static readonly Color[] ArcCols =
+		// 原版：一圈一环静态细轨道（内红外紫）+ 进度亮弧
+		private static readonly Color[] TrackCols =
 		{
-			new("f5d43c"), new("8bc94f"), new("3fbf7f"), new("38cfc0"),
-			new("3f66e0"), new("9a4dd8"), new("d844c8"), new("ef6ab8"), new("efefef"),
+			new("d42020"), new("e07800"), new("e8cc00"), new("27ae60"), new("00d696"),
+			new("00d3d0"), new("1e62f0"), new("5b4bd8"), new("9a4dd8"), new("e91ea4"),
+			new("efefef"),
 		};
-		private static readonly float[] ArcSweeps = { 2.4f, 4.8f, 3.3f, 5.6f, 2.9f, 4.4f, 3.8f, 5.1f, 4.2f };
 
 		public override void _Process(double delta)
 		{
-			_t += (float)delta;
 			QueueRedraw();
 		}
 
 		public override void _Draw()
 		{
+			var gm = GameManager.Instance;
+			var g = gm?.Save;
+			if (g == null) return;
+
 			var c = new Vector2(Size.X / 2f, Size.Y / 2f);
 			float min = Math.Min(Size.X, Size.Y);
-			float baseR = min * 0.12f;
-			float step = min * 0.034f;
-			float w = 13f;
+			float baseR = min * 0.10f;
+			float step = min * 0.032f;
 
-			// 中心红圆 + 深红外环(原版样式)
+			// 中心红心
 			DrawCircle(c, baseR * 0.78f, new Color("8f1f16"));
 			DrawCircle(c, baseR * 0.56f, new Color("e8483f"));
 
-			for (int i = 0; i < 9; i++)
+			int n = Math.Min(g.game.unlocked, TrackCols.Length);
+			for (int i = 0; i < n; i++)
 			{
-				float r = baseR + step * (i + 1) * 1.05f;
-				float speed = 0.5f + i * 0.055f;
-				// 黄金角分布起始相位,参差有机
-				float start = _t * speed + i * 2.4f;
-				float sweep = ArcSweeps[i];
-				float end = start + sweep;
-				DrawArc(c, r, start, end, 96, ArcCols[i], w, true);
-				// 圆头端点(原版弧线两端为圆帽)
-				DrawCircle(c + new Vector2(MathF.Cos(start), MathF.Sin(start)) * r, w / 2f, ArcCols[i]);
-				DrawCircle(c + new Vector2(MathF.Cos(end), MathF.Sin(end)) * r, w / 2f, ArcCols[i]);
+				float r = baseR + step * (i + 1) + min * 0.004f;
+				var trackCol = TrackCols[i];
+				trackCol.A = 0.4f;
+				DrawArc(c, r, 0, Mathf.Tau, 128, trackCol, 5f, true);
+
+				// 亮色进度弧:弧长 = 转圈进度
+				double prog = i < g.game.revProgress.Count ? g.game.revProgress[i] : 0;
+				prog = Math.Clamp(prog, 0, 1);
+				if (prog > 0.002)
+				{
+					float sweep = (float)prog * Mathf.Tau;
+					float start = -Mathf.Pi / 2f;
+					var col = TrackCols[i];
+					DrawArc(c, r, start, start + sweep, 128, col, 9f, true);
+					float ae = start + sweep;
+					DrawCircle(c + new Vector2(MathF.Cos(ae), MathF.Sin(ae)) * r, 4.5f, col);
+				}
 			}
 		}
 	}
