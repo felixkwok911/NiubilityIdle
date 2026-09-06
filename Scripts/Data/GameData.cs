@@ -39,6 +39,12 @@ namespace NiubilityIdle.Data
         [JsonProperty] public bool infBroken = false;
         // 商店增益等级:每级全局产出 ×2(原版商店 boost)
         [JsonProperty] public int boostLevel = 0;
+        // Revolution.mult:每圈累计倍率(飞升堆出来的,对应原版顶链大数字)
+        [JsonProperty] public List<double> revMult = new();
+        // 上次保存时间(Unix 秒,离线收益用)
+        [JsonProperty] public double lastSaveUnix = 0;
+        // 时间流量加速剩余秒数(×2 游戏速度)
+        [JsonProperty] public double boostTime = 0;
     }
 
     public class InfinityData

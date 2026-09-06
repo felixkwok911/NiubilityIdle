@@ -89,12 +89,15 @@ namespace NiubilityIdle
 		private Label _chainP;
 		private readonly List<Label> _barLine1 = new();    // 左条行1 圈/秒
 		private readonly List<Label> _barLine2 = new();    // 左条行2 价格
+		private readonly List<Button> _barAscBtns = new(); // 左条飞升按钮
 		private Label _prestigeExpLbl;
 		private Label _prestigeMultLbl;
 		private Label _prestigeClickLbl;
 		private Label _promoLbl;
 		private Label _autoLbl;
 		private Label _fluxBig;
+		private Label _infBig;
+		private Label _treeBig;
 		private readonly List<TextureRect> _menuIcons = new();
 		private Panel _progressFill;
 		private Label _progressLbl;
@@ -240,9 +243,18 @@ namespace NiubilityIdle
 				bool canBuy = g.game.score >= cost;
 				_barLine2[i].Text = Suf(cost) + " ⊙";
 				_barLine2[i].AddThemeColorOverride("font_color", canBuy ? new Color("0a3d12") : new Color("111111"));
+				// 飞升按钮:满 25 级可见,显示倍率增量
+				if (i < _barAscBtns.Count)
+				{
+					bool canAsc = GM().CanAscend(i);
+					_barAscBtns[i].Visible = canAsc;
+					if (canAsc) _barAscBtns[i].Text = $"飞升 ×{GM().AscendGain(i):0.##}";
+				}
 			}
 			RefreshPrestigeWindow();
-			if (_fluxBig != null) _fluxBig.Text = Suf(g.game.timeFlux);
+			if (_fluxBig != null) _fluxBig.Text = Suf(g.game.timeFlux) + (g.game.boostTime > 0 ? $"  (加速中 ×2,剩 {g.game.boostTime:0}s)" : "");
+			if (_infBig != null) _infBig.Text = Suf(g.infinity.infinityPoints);
+			if (_treeBig != null) _treeBig.Text = Suf(g.infinity.infinityPoints);
 		}
 
 		private void Toast(string msg)
@@ -483,8 +495,8 @@ namespace NiubilityIdle
 			// 旧页控件即将释放,先断开动态刷新引用,避免 _Process 访问已释放对象
 			_scoreLbl = null; _gainLbl = null; _perRevLbl = null;
 			_prestigeExpLbl = null; _prestigeMultLbl = null; _prestigeClickLbl = null;
-			_promoLbl = null; _autoLbl = null; _fluxBig = null;
-			_barLine1.Clear(); _barLine2.Clear();
+			_promoLbl = null; _autoLbl = null; _fluxBig = null; _infBig = null; _treeBig = null;
+			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear();
 			for (int i = 0; i < _menuRows.Count; i++)
 				_menuRows[i].AddThemeStyleboxOverride("panel",
 					Flat(i == idx ? C_Card : new Color(0, 0, 0, 0), 6));
@@ -588,7 +600,7 @@ namespace NiubilityIdle
 			stack.SizeFlagsHorizontal = SizeFlags.Fill;
 			stack.AddThemeConstantOverride("separation", 6);
 			var g = SD();
-			_barLine1.Clear(); _barLine2.Clear();
+			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear();
 			for (int i = 0; i < g.game.unlocked && i < GameManager.MaxCircles; i++)
 			{
 				int idx = i;
@@ -597,14 +609,17 @@ namespace NiubilityIdle
 				bar.AddThemeStyleboxOverride("panel", Flat(BarCols[idx], 8));
 				var mv = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
 				mv.AddThemeConstantOverride("margin_left", 8);
-				mv.AddThemeConstantOverride("margin_right", 10);
+				mv.AddThemeConstantOverride("margin_right", 6);
 				mv.AddThemeConstantOverride("margin_top", 5);
 				mv.AddThemeConstantOverride("margin_bottom", 5);
 				bar.AddChild(mv);
-				// 原版：条内两行居中，无左侧图标，费用后跟 ⊙
-				var vb = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+				var hb = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
+				hb.AddThemeConstantOverride("separation", 6);
+				mv.AddChild(hb);
+				// 原版：条内两行居中，费用后跟 ⊙
+				var vb = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore, SizeFlagsHorizontal = SizeFlags.ExpandFill };
 				vb.AddThemeConstantOverride("separation", 1);
-				mv.AddChild(vb);
+				hb.AddChild(vb);
 				var l1 = new Label { Text = "圈/秒:0", HorizontalAlignment = HorizontalAlignment.Center };
 				l1.AddThemeFontSizeOverride("font_size", 14);
 				l1.AddThemeColorOverride("font_color", new Color("1a1a1a"));
@@ -615,6 +630,25 @@ namespace NiubilityIdle
 				vb.AddChild(l2);
 				_barLine1.Add(l1);
 				_barLine2.Add(l2);
+				// 飞升按钮(满 25 级出现,原版核心成长)
+				var ascBtn = new Button { Text = "飞升", Visible = false, FocusMode = FocusModeEnum.None, CustomMinimumSize = new Vector2(58, 0) };
+				ascBtn.AddThemeFontSizeOverride("font_size", 13);
+				ascBtn.AddThemeStyleboxOverride("normal", Flat(new Color("141414"), 5));
+				ascBtn.AddThemeStyleboxOverride("hover", Flat(new Color("333333"), 5));
+				ascBtn.AddThemeStyleboxOverride("pressed", Flat(new Color("333333"), 5));
+				ascBtn.AddThemeColorOverride("font_color", BarCols[idx]);
+				ascBtn.AddThemeColorOverride("font_hover_color", C_White);
+				ascBtn.SizeFlagsVertical = SizeFlags.ShrinkCenter;
+				hb.AddChild(ascBtn);
+				_barAscBtns.Add(ascBtn);
+				int ascIdx = idx;
+				ascBtn.Pressed += () =>
+				{
+					double gain = GM().AscendGain(ascIdx);
+					GM().TryAscend(ascIdx);
+					Toast($"圈 {ascIdx + 1} 飞升!倍率 ×{gain:0.##}");
+					ShowMenu(_curMenu);
+				};
 				bar.GuiInput += ev =>
 				{
 					if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
@@ -660,6 +694,17 @@ namespace NiubilityIdle
 			buyWrap.CustomMinimumSize = new Vector2(120, 0);
 			buyWrap.AddChild(buy);
 			leftCol.AddChild(buyWrap);
+			// 全部飞升(原版 AscendAll)
+			var ascAll = MakeTextButton("全飞", new Color("f5a623"), new Color("3a2506"), 60, 30, 15);
+			var ascWrap = new CenterContainer();
+			ascWrap.AddChild(ascAll);
+			leftCol.AddChild(ascWrap);
+			ascAll.Pressed += () =>
+			{
+				int n = GM().AscendAll();
+				Toast(n > 0 ? $"全部飞升 ×{n} 个圆圈!" : "没有满 25 级的圆圈");
+				ShowMenu(_curMenu);
+			};
 			orbitRow.AddChild(leftCol);
 
 			// 轨道动画
@@ -885,8 +930,7 @@ namespace NiubilityIdle
 			var g = SD();
 			var page = (ScrollContainer)PageShell("无限 Infinity", Suf(g.infinity.infinityPoints), "无限点数 IP · 无限次数 " + Suf(g.infinity.infinities), new Color("38cfc0"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			vb.AddChild(Card("无限挑战", new[] { "challenge_all · Lv99(满级)", "所有挑战奖励已全部领取" }));
-			vb.AddChild(Card("自动无限", new[] { "autoInfinity:开 · autoInfinityIP:开", "autoInfTree:开 · 无限树全节点 MAX" }));
+			_infBig = (Label)vb.GetChild(1);
 			var infBtn = MakeTextButton("执 行 无 限 (需 1.79e308)", new Color("38cfc0"), new Color("0a2220"), 0, 44, 20);
 			infBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 			infBtn.Pressed += () =>
@@ -898,16 +942,56 @@ namespace NiubilityIdle
 				ShowMenu(_curMenu);
 			};
 			vb.AddChild(infBtn);
-			vb.AddChild(MilestoneGrid("无限里程碑", 8, new Color("38cfc0")));
 			return page;
 		}
 
 		private Control BuildInfTreePage()
 		{
-			var page = (ScrollContainer)PageShell("无限树 Infinity Tree", null, null, C_White);
+			var inf = SD().infinity;
+			var page = (ScrollContainer)PageShell("无限树 Infinity Tree", Suf(inf.infinityPoints), "消耗 IP 购买永久升级(无限后生效)", new Color("8bc94f"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			vb.AddChild(MilestoneGrid("全部节点 · 等级 MAX", 12, new Color("8bc94f")));
-			vb.AddChild(Card("自动重置", new[] { "autoInfTree:开 · 每次无限后自动重植全树" }));
+			_treeBig = (Label)vb.GetChild(1);
+
+			var grid = new GridContainer { Columns = 2 };
+			grid.AddThemeConstantOverride("h_separation", 10);
+			grid.AddThemeConstantOverride("v_separation", 10);
+			string[][] nodes =
+			{
+				new[] { "全局产出 ×2", "每级:所有产出翻倍" },
+				new[] { "圈速 +25%", "每级:全部圆圈转速 +25%" },
+				new[] { "转生增益 +50%", "每级:转生倍率增量 +50%" },
+				new[] { "离线上限 +8h", "每级:离线收益上限 +8 小时" },
+			};
+			for (int i = 0; i < nodes.Length; i++)
+			{
+				int node = i;
+				var card = new PanelContainer { CustomMinimumSize = new Vector2(310, 100), SizeFlagsHorizontal = SizeFlags.ExpandFill };
+				card.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+				var mv = new MarginContainer();
+				mv.AddThemeConstantOverride("margin_left", 12); mv.AddThemeConstantOverride("margin_top", 8);
+				mv.AddThemeConstantOverride("margin_right", 12); mv.AddThemeConstantOverride("margin_bottom", 8);
+				card.AddChild(mv);
+				var cvb = new VBoxContainer(); cvb.AddThemeConstantOverride("separation", 4); mv.AddChild(cvb);
+				var n = new Label { Text = $"{nodes[i][0]} (Lv{GM().TreeLevel(node)})" };
+				n.AddThemeFontSizeOverride("font_size", 15);
+				n.AddThemeColorOverride("font_color", C_White);
+				cvb.AddChild(n);
+				var ds = new Label { Text = nodes[i][1] };
+				ds.AddThemeFontSizeOverride("font_size", 11);
+				ds.AddThemeColorOverride("font_color", C_Gray);
+				cvb.AddChild(ds);
+				var b = MakeTextButton($"升级 {Suf(GM().GetTreeCost(node))} IP", new Color("38cfc0"), new Color("0c2a2a"), 0, 28, 12);
+				b.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+				b.Pressed += () =>
+				{
+					if (GM().TryBuyTree(node)) Toast($"无限树节点升级到 Lv{GM().TreeLevel(node)}");
+					else Toast($"IP 不足,需要 {Suf(GM().GetTreeCost(node))}");
+					ShowMenu(_curMenu);
+				};
+				cvb.AddChild(b);
+				grid.AddChild(card);
+			}
+			vb.AddChild(grid);
 			return page;
 		}
 
@@ -948,8 +1032,17 @@ namespace NiubilityIdle
 			var g = SD();
 			var page = (ScrollContainer)PageShell("时间流量 Time Flux", Suf(g.game.timeFlux), "随游戏时间自动积累 · 灵魂 " + Suf(g.game.souls), new Color("ef8b33"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			_fluxBig = (Label)((VBoxContainer)page.GetChild(0)).GetChild(1);
-			vb.AddChild(Card("自动减速", new[] { "时间流量持续积累中:每秒 +1", "后期用于减速外圈、获取灵魂加成" }));
+			_fluxBig = (Label)vb.GetChild(1);
+			vb.AddChild(Card("时间加速", new[] { "消耗 30 秒时间流量 → 全局产出 ×2,持续 60 秒" }));
+			var boostBtn = MakeTextButton("使用加速 (30 TF → ×2 / 60秒)", new Color("ef8b33"), new Color("3a2506"), 0, 44, 18);
+			boostBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			boostBtn.Pressed += () =>
+			{
+				if (GM().TryUseFluxBoost()) Toast("时间加速启动!产出 ×2 / 60 秒");
+				else Toast($"时间流量不足 30(当前 {Suf(GM().Save.game.timeFlux)})");
+				ShowMenu(_curMenu);
+			};
+			vb.AddChild(boostBtn);
 			return page;
 		}
 
