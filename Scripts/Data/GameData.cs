@@ -45,6 +45,17 @@ namespace NiubilityIdle.Data
         [JsonProperty] public int relicLevel = 0;
         // 已收集塔罗牌 id(0..21),每张全局产出 +5%
         [JsonProperty] public List<int> tarot = new();
+        // 攻击系统:波次/攻击等级/当前 Boss HP(击败波次全局永久 +10%)
+        [JsonProperty] public int bossWave = 0;
+        [JsonProperty] public int attackLevel = 0;
+        [JsonProperty] public double bossHp = 50;
+        // 奇点:点燃消耗全部无限次数,每个全局 ×2
+        [JsonProperty] public int singularities = 0;
+        // 宏:自动执行序列("buy:0"/"ascend"/"prestige"/"boost"),每 2 秒执行一步
+        [JsonProperty] public List<string> macroSteps = new();
+        [JsonProperty] public bool macroOn = false;
+        [JsonProperty] public int macroIdx = 0;
+        [JsonProperty] public double macroTimer = 0;
         // Revolution.mult:每圈累计倍率(飞升堆出来的,对应原版顶链大数字)
         [JsonProperty] public List<double> revMult = new();
         // 上次保存时间(Unix 秒,离线收益用)

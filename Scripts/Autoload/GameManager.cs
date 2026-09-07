@@ -212,6 +212,7 @@ namespace NiubilityIdle.Autoload
                     var gain = new BigDouble(GetEffectiveMult(i), 0) * laps;
                     g.score += gain;
                     g.totalScore += gain;
+                    g.minerals += new BigDouble(0.5 * laps * (i + 1), 0);   // 转圈掉落矿物
                 }
             }
 
@@ -239,6 +240,7 @@ namespace NiubilityIdle.Autoload
             }
 
             CheckAchievements();
+            RunMacro(delta);
             if (Engine.GetFramesDrawn() % 600 == 0)
             {
                 g.lastSaveUnix = (double)System.DateTimeOffset.UtcNow.ToUnixTimeSeconds();
@@ -278,6 +280,8 @@ namespace NiubilityIdle.Autoload
             boost *= System.Math.Pow(2, TreeLevel(0));                      // 无限树:全局产出
             boost *= GetUnityMult();                                        // 统一升级
             boost *= GetTarotMult();                                        // 塔罗收集
+            boost *= GetAttackBonus();                                      // 攻击波次
+            boost *= GetSingularityMult();                                  // 奇点
             boost *= 1.0 + Save.eternity.EP.ToDouble() * 0.1;               // 永久:EP 加成
             if (Save.game.boostTime > 0) boost *= 2;                        // 时间流量加速
             return new BigDouble(inc, 0) * boost;
@@ -463,6 +467,98 @@ namespace NiubilityIdle.Autoload
             Save.game.tarot.Add(got);
             SaveGame();
             return got;
+        }
+
+        // ── 攻击系统:升级攻击力,打 Boss 波次,每波全局永久 +10% ──
+        public double GetAttackPower() => (1 + Save.game.attackLevel) * System.Math.Pow(1.5, Save.game.attackLevel);
+        public BigDouble GetAttackUpgradeCost() => new BigDouble(1e4 * System.Math.Pow(8, Save.game.attackLevel), 0);
+        public double GetAttackBonus() => System.Math.Pow(1.1, Save.game.bossWave);
+
+        // 攻击一次:造成攻击力伤害,击杀 Boss 进入下一波
+        public bool TryAttack()
+        {
+            var g = Save.game;
+            g.bossHp -= GetAttackPower();
+            if (g.bossHp <= 0)
+            {
+                g.bossWave++;
+                g.bossHp = 50 * System.Math.Pow(3, g.bossWave);
+                SaveGame();
+                return true; // 击杀
+            }
+            SaveGame();
+            return false;
+        }
+
+        public bool TryUpgradeAttack()
+        {
+            var cost = GetAttackUpgradeCost();
+            if (Save.game.score < cost) return false;
+            Save.game.score -= cost;
+            Save.game.attackLevel++;
+            SaveGame();
+            return true;
+        }
+
+        // ── 奇点:无限 ≥ 100 可点燃,消耗全部无限次数换全局 ×2 ──
+        public bool CanIgnite() => Save.infinity.infinities.CompareTo(new BigDouble(100, 0)) >= 0;
+
+        public bool TryIgnite()
+        {
+            if (!CanIgnite()) return false;
+            Save.infinity.infinities = BigDouble.Zero;
+            Save.game.singularities++;
+            SaveGame();
+            return true;
+        }
+
+        public double GetSingularityMult() => System.Math.Pow(2, Save.game.singularities);
+
+        // ── 宏:自动执行序列,每 2 秒一步(原版 MacroController) ──
+        public event Action<string> MacroFired;
+        public void MacroToggle()
+        {
+            Save.game.macroOn = !Save.game.macroOn;
+            Save.game.macroTimer = 0;
+            SaveGame();
+        }
+
+        public void MacroAdd(string step)
+        {
+            if (Save.game.macroSteps.Count < 8) Save.game.macroSteps.Add(step);
+            SaveGame();
+        }
+
+        public void MacroClear()
+        {
+            Save.game.macroSteps.Clear();
+            Save.game.macroOn = false;
+            Save.game.macroIdx = 0;
+            SaveGame();
+        }
+
+        private void RunMacro(double delta)
+        {
+            var g = Save.game;
+            if (!g.macroOn || g.macroSteps.Count == 0) return;
+            g.macroTimer += delta;
+            if (g.macroTimer < 2) return;
+            g.macroTimer = 0;
+            string step = g.macroSteps[g.macroIdx % g.macroSteps.Count];
+            g.macroIdx++;
+            switch (step)
+            {
+                case "buy0": TryBuyCircle(0); break;
+                case "buy1": TryBuyCircle(1); break;
+                case "buyAll":
+                    for (int i = g.unlocked - 1; i >= 0; i--) TryBuyCircle(i);
+                    break;
+                case "ascend": AscendAll(); break;
+                case "prestige": PrestigeClick(); break;
+                case "boost": TryUseFluxBoost(); break;
+            }
+            MacroFired?.Invoke(step);
+            SaveGame();
         }
 
         public void SaveGame()

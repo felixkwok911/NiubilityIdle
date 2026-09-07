@@ -104,6 +104,119 @@ namespace NiubilityIdle
 		private Label _progressLbl;
 		private Label _progressMarker;
 		private int _lastUnlocked = -1;
+		private Panel _modal;
+
+		// ── 通用模态弹窗 ──
+		private void ShowModal(string title, string body, string okText = "确 定")
+		{
+			CloseModal();
+			_modal = new Panel { MouseFilter = MouseFilterEnum.Stop };
+			_modal.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			var dim = new ColorRect { Color = new Color(0, 0, 0, 0.65f), MouseFilter = MouseFilterEnum.Stop };
+			dim.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			_modal.AddChild(dim);
+			var cc = new CenterContainer { MouseFilter = MouseFilterEnum.Stop };
+			cc.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			_modal.AddChild(cc);
+			var box = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
+			box.AddThemeStyleboxOverride("panel", Flat(C_Card, 10));
+			box.CustomMinimumSize = new Vector2(430, 0);
+			var mv = new MarginContainer { MouseFilter = MouseFilterEnum.Stop };
+			mv.AddThemeConstantOverride("margin_left", 22); mv.AddThemeConstantOverride("margin_right", 22);
+			mv.AddThemeConstantOverride("margin_top", 16); mv.AddThemeConstantOverride("margin_bottom", 16);
+			box.AddChild(mv);
+			var vb = new VBoxContainer(); vb.AddThemeConstantOverride("separation", 12); mv.AddChild(vb);
+			var t = new Label { Text = title, HorizontalAlignment = HorizontalAlignment.Center };
+			t.AddThemeFontSizeOverride("font_size", 24);
+			t.AddThemeColorOverride("font_color", C_White);
+			vb.AddChild(t);
+			var b = new Label { Text = body, HorizontalAlignment = HorizontalAlignment.Center, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+			b.AddThemeFontSizeOverride("font_size", 16);
+			b.AddThemeColorOverride("font_color", new Color("d8d8d8"));
+			b.CustomMinimumSize = new Vector2(390, 0);
+			vb.AddChild(b);
+			var ok = MakeTextButton(okText, C_Green, new Color("0c2a10"), 0, 40, 18);
+			ok.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			ok.Pressed += CloseModal;
+			vb.AddChild(ok);
+			cc.AddChild(box);
+			AddChild(_modal);
+		}
+
+		private void CloseModal()
+		{
+			if (_modal != null) { _modal.QueueFree(); _modal = null; }
+		}
+
+		// ── 攻击弹窗:Boss 波次 ──
+		private void ShowAttackModal()
+		{
+			var g = SD();
+			CloseModal();
+			_modal = new Panel { MouseFilter = MouseFilterEnum.Stop };
+			_modal.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			var dim = new ColorRect { Color = new Color(0, 0, 0, 0.65f), MouseFilter = MouseFilterEnum.Stop };
+			dim.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			_modal.AddChild(dim);
+			var cc = new CenterContainer { MouseFilter = MouseFilterEnum.Stop };
+			cc.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			_modal.AddChild(cc);
+			var box = new PanelContainer { MouseFilter = MouseFilterEnum.Stop };
+			box.AddThemeStyleboxOverride("panel", Flat(C_Card, 10));
+			box.CustomMinimumSize = new Vector2(430, 0);
+			var mv = new MarginContainer { MouseFilter = MouseFilterEnum.Stop };
+			mv.AddThemeConstantOverride("margin_left", 22); mv.AddThemeConstantOverride("margin_right", 22);
+			mv.AddThemeConstantOverride("margin_top", 16); mv.AddThemeConstantOverride("margin_bottom", 16);
+			box.AddChild(mv);
+			var vb = new VBoxContainer(); vb.AddThemeConstantOverride("separation", 10); mv.AddChild(vb);
+
+			var t = new Label { Text = $"攻击 · Boss 波次 {g.game.bossWave + 1}", HorizontalAlignment = HorizontalAlignment.Center };
+			t.AddThemeFontSizeOverride("font_size", 22);
+			t.AddThemeColorOverride("font_color", new Color("ff7a6a"));
+			vb.AddChild(t);
+
+			double hpMax = 50 * System.Math.Pow(3, g.game.bossWave);
+			var hp = new Label { Text = $"Boss HP:{g.game.bossHp:0} / {hpMax:0}", HorizontalAlignment = HorizontalAlignment.Center };
+			hp.AddThemeFontSizeOverride("font_size", 17);
+			hp.AddThemeColorOverride("font_color", C_White);
+			vb.AddChild(hp);
+
+			var pw = new Label { Text = $"攻击力:{GM().GetAttackPower():0} · 击败波次全局产出永久 +10%(当前 ×{GM().GetAttackBonus():0.##})", HorizontalAlignment = HorizontalAlignment.Center, AutowrapMode = TextServer.AutowrapMode.WordSmart };
+			pw.AddThemeFontSizeOverride("font_size", 13);
+			pw.AddThemeColorOverride("font_color", C_Gray);
+			pw.CustomMinimumSize = new Vector2(390, 0);
+			vb.AddChild(pw);
+
+			var atk = MakeTextButton("攻 击", new Color("e8483f"), C_White, 0, 42, 20);
+			atk.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			atk.Pressed += () =>
+			{
+				bool killed = GM().TryAttack();
+				CloseModal();
+				if (killed) { Toast($"Boss 被击败!波次 {GM().Save.game.bossWave} · 全局产出 +10%"); }
+				else ShowAttackModal();
+			};
+			vb.AddChild(atk);
+
+			var up = MakeTextButton($"升级攻击力 {Suf(GM().GetAttackUpgradeCost())} ⊙", new Color("555555"), C_White, 0, 34, 14);
+			up.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			up.Pressed += () =>
+			{
+				if (GM().TryUpgradeAttack()) Toast($"攻击力升级到 Lv{GM().Save.game.attackLevel}");
+				else Toast($"分数不足,需要 {Suf(GM().GetAttackUpgradeCost())}");
+				CloseModal();
+				ShowAttackModal();
+			};
+			vb.AddChild(up);
+
+			var cl = MakeTextButton("关 闭", new Color("444444"), C_White, 0, 30, 14);
+			cl.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+			cl.Pressed += CloseModal;
+			vb.AddChild(cl);
+
+			cc.AddChild(box);
+			AddChild(_modal);
+		}
 
 		private static GameManager GM() => GameManager.Instance;
 		private static SaveData SD() => GM()?.Save;
@@ -163,6 +276,12 @@ namespace NiubilityIdle
 			// 引擎内截图(调试验收用):启动 2 秒后把 12 个菜单页各存一张 PNG 到用户目录
 			var t = GetTree().CreateTimer(2.0);
 			t.Timeout += CaptureAllPages;
+
+			// 离线收益弹窗(原版离线结算 UI)
+			if (GM().OfflineGained > 0)
+			{
+				ShowModal("离线收益", $"欢迎回来!\n\n离线期间圆圈持续转动,\n为你赚取了 +{Suf(new BigDouble(GM().OfflineGained, 0))} ⊙\n(离线效率 50%,上限可用无限树扩展)");
+			}
 		}
 
 		private async void CaptureAllPages()
@@ -773,6 +892,29 @@ namespace NiubilityIdle
 					Toast("演示:排行榜 #1");
 			};
 			giftRow.AddChild(chart);
+			// 攻击入口(红色圆形 + 原版剑图标)
+			var atkBtn = new Panel { CustomMinimumSize = new Vector2(34, 34), SizeFlagsVertical = SizeFlags.ShrinkCenter };
+			atkBtn.AddThemeStyleboxOverride("panel", Flat(new Color("e8483f"), 17));
+			var sword = new TextureRect
+			{
+				Texture = new AtlasTexture
+				{
+					Atlas = GD.Load<Texture2D>("res://Assets/UI/tmp_sprites.png"),
+					Region = new Rect2(114, 128, 56, 56),
+				},
+				ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+				StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+				MouseFilter = MouseFilterEnum.Ignore,
+			};
+			sword.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
+			sword.OffsetLeft = 4; sword.OffsetTop = 4; sword.OffsetRight = -4; sword.OffsetBottom = -4;
+			atkBtn.AddChild(sword);
+			atkBtn.GuiInput += ev =>
+			{
+				if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
+					ShowAttackModal();
+			};
+			giftRow.AddChild(atkBtn);
 			var rankLbl = new Label { Text = "#28603" };
 			rankLbl.AddThemeFontSizeOverride("font_size", 11);
 			rankLbl.AddThemeColorOverride("font_color", C_Gray);
@@ -944,6 +1086,20 @@ namespace NiubilityIdle
 				ShowMenu(_curMenu);
 			};
 			vb.AddChild(infBtn);
+
+			// 奇点:无限 ≥ 100 可点燃,消耗全部无限次数换全局 ×2
+			if (GM().CanIgnite())
+			{
+				vb.AddChild(SmallLine($"奇点:已点燃 {GM().Save.game.singularities} 个(每个全局产出 ×2)", 14, new Color("ff9ad5")));
+				var ig = MakeTextButton("点 燃 奇 点 (消耗全部无限次数)", new Color("ff9ad5"), new Color("2a0a1e"), 0, 40, 17);
+				ig.SizeFlagsHorizontal = SizeFlags.ExpandFill;
+				ig.Pressed += () =>
+				{
+					if (GM().TryIgnite()) Toast($"奇点点燃!当前全局产出 ×{GM().GetSingularityMult():0.##}");
+					ShowMenu(_curMenu);
+				};
+				vb.AddChild(ig);
+			}
 			return page;
 		}
 
@@ -1183,6 +1339,66 @@ namespace NiubilityIdle
 			exp.Pressed += () => Toast("演示版:导出功能未开放");
 			row.AddChild(exp);
 			vb.AddChild(warn);
+
+			// ── 宏系统:自动执行序列,每 2 秒一步(转生 3 次解锁) ──
+			var g3 = SD();
+			var macroCard = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
+			macroCard.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+			var mmv = new MarginContainer();
+			mmv.AddThemeConstantOverride("margin_left", 14); mmv.AddThemeConstantOverride("margin_top", 10);
+			mmv.AddThemeConstantOverride("margin_right", 14); mmv.AddThemeConstantOverride("margin_bottom", 10);
+			macroCard.AddChild(mmv);
+			var mvb = new VBoxContainer(); mvb.AddThemeConstantOverride("separation", 8); mmv.AddChild(mvb);
+			bool macroUnlocked = g3.game.prestigeCount >= 3;
+			var mt = new Label { Text = macroUnlocked ? "宏系统(自动执行序列,每 2 秒一步)" : "宏系统(转生 3 次解锁)" };
+			mt.AddThemeFontSizeOverride("font_size", 15);
+			mt.AddThemeColorOverride("font_color", macroUnlocked ? new Color("8bc94f") : C_Gray);
+			mvb.AddChild(mt);
+			if (macroUnlocked)
+			{
+				var steps = g3.game.macroSteps;
+				var cur = new Label
+				{
+					Text = steps.Count == 0
+						? "序列为空:先添加步骤"
+						: "序列: " + string.Join(" → ", steps) + (g3.game.macroOn ? $"   ▶ 运行中(第 {g3.game.macroIdx % steps.Count + 1} 步)" : ""),
+					AutowrapMode = TextServer.AutowrapMode.WordSmart,
+				};
+				cur.AddThemeFontSizeOverride("font_size", 13);
+				cur.AddThemeColorOverride("font_color", g3.game.macroOn ? C_Green : new Color("cfcfcf"));
+				cur.CustomMinimumSize = new Vector2(0, 34);
+				mvb.AddChild(cur);
+				var row1 = new HBoxContainer(); row1.AddThemeConstantOverride("separation", 8); mvb.AddChild(row1);
+				var row2 = new HBoxContainer(); row2.AddThemeConstantOverride("separation", 8); mvb.AddChild(row2);
+				(string label, string step)[] adds =
+				{
+					("+买圈1", "buy0"), ("+买圈2", "buy1"), ("+买全部", "buyAll"),
+				};
+				(string label, string step)[] adds2 =
+				{
+					("+全飞", "ascend"), ("+转生", "prestige"), ("+加速", "boost"),
+				};
+				foreach (var (label, step) in adds)
+				{
+					var b = MakeTextButton(label, new Color("38cfc0"), new Color("0c2a2a"), 90, 30, 12);
+					b.Pressed += () => { GM().MacroAdd(step); ShowMenu(_curMenu); };
+					row1.AddChild(b);
+				}
+				foreach (var (label, step) in adds2)
+				{
+					var b = MakeTextButton(label, new Color("f5a623"), new Color("3a2506"), 90, 30, 12);
+					b.Pressed += () => { GM().MacroAdd(step); ShowMenu(_curMenu); };
+					row2.AddChild(b);
+				}
+				var row3 = new HBoxContainer(); row3.AddThemeConstantOverride("separation", 8); mvb.AddChild(row3);
+				var run = MakeTextButton(g3.game.macroOn ? "停 止" : "运 行", C_Green, new Color("0c2a10"), 110, 34, 14);
+				run.Pressed += () => { GM().MacroToggle(); ShowMenu(_curMenu); };
+				row3.AddChild(run);
+				var clr = MakeTextButton("清空序列", new Color("c0483f"), C_White, 110, 34, 14);
+				clr.Pressed += () => { GM().MacroClear(); ShowMenu(_curMenu); };
+				row3.AddChild(clr);
+			}
+			vb.AddChild(macroCard);
 			return page;
 		}
 
