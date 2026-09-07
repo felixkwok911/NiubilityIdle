@@ -16,14 +16,17 @@ namespace NiubilityIdle
 	// ═══════════════════════════════════════════════════════════════════
 	public partial class Main : Control
 	{
-		// ── 原版配色（取自原游戏截图）──
-		private static readonly Color C_Bg      = new("1f1f1f");
-		private static readonly Color C_MenuBg  = new("191919");
-		private static readonly Color C_Card    = new("3a3a3a");
-		private static readonly Color C_Card2   = new("2e2e2e");
-		private static readonly Color C_Line    = new("4a4a4a");
-		private static readonly Color C_White   = new("f2f2f2");
-		private static readonly Color C_Gray    = new("9a9a9a");
+		// ── 原版配色:背景→面板→卡片→高亮 四层分明 ──
+		private static readonly Color C_Bg      = new("131316");   // 最深:窗口底
+		private static readonly Color C_Panel   = new("1c1c20");   // 侧栏/大面板
+		private static readonly Color C_MenuBg  = new("18181c");   // 右菜单底
+		private static readonly Color C_Card    = new("26262b");   // 卡片/转生窗
+		private static readonly Color C_Card2   = new("2c2c33");   // 卡片高亮
+		private static readonly Color C_Area    = new("33333a");   // 内区
+		private static readonly Color C_Border  = new("3a3a44");   // 边框
+		private static readonly Color C_Line    = new("2a2a30");   // 分隔线
+		private static readonly Color C_White   = new("f2f2f5");
+		private static readonly Color C_Gray     = new("8a8a96");
 		private static readonly Color C_Green   = new("3ddb62");
 		private static readonly Color C_Pink    = new("e857c8");
 
@@ -89,6 +92,7 @@ namespace NiubilityIdle
 		private Label _chainP;
 		private readonly List<Label> _barLine1 = new();    // 左条行1 圈/秒
 		private readonly List<Label> _barLine2 = new();    // 左条行2 价格
+		private readonly List<PanelContainer> _barPanels = new(); // 左条容器(可买时加边框)
 		private readonly List<Button> _barAscBtns = new(); // 左条飞升按钮
 		private Label _prestigeExpLbl;
 		private Label _prestigeMultLbl;
@@ -363,6 +367,13 @@ namespace NiubilityIdle
 				bool canBuy = g.game.score >= cost;
 				_barLine2[i].Text = Suf(cost) + " ⊙";
 				_barLine2[i].AddThemeColorOverride("font_color", canBuy ? new Color("0a3d12") : new Color("111111"));
+				// 可买时整条加白色边框发光
+				if (i < _barPanels.Count)
+				{
+					var sb = Flat(BarCols[i], 10);
+					if (canBuy) { sb.BorderColor = new Color(1, 1, 1, 0.85f); sb.SetBorderWidthAll(2); }
+					_barPanels[i].AddThemeStyleboxOverride("panel", sb);
+				}
 				// 飞升按钮:满 25 级可见,显示倍率增量
 				if (i < _barAscBtns.Count)
 				{
@@ -617,10 +628,18 @@ namespace NiubilityIdle
 			_scoreLbl = null; _gainLbl = null; _perRevLbl = null;
 			_prestigeExpLbl = null; _prestigeMultLbl = null; _prestigeClickLbl = null;
 			_promoLbl = null; _autoLbl = null; _fluxBig = null; _infBig = null; _treeBig = null; _unityBig = null;
-			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear();
+			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear(); _barPanels.Clear();
 			for (int i = 0; i < _menuRows.Count; i++)
-				_menuRows[i].AddThemeStyleboxOverride("panel",
-					Flat(i == idx ? C_Card : new Color(0, 0, 0, 0), 6));
+			{
+				bool active = i == idx;
+				var sb = Flat(active ? C_Card2 : new Color(0, 0, 0, 0), 6);
+				if (active)
+				{
+					sb.BorderColor = new Color("4f7cff");
+					sb.BorderWidthLeft = 3;
+				}
+				_menuRows[i].AddThemeStyleboxOverride("panel", sb);
+			}
 
 			foreach (var c in _centerArea.GetChildren()) c.QueueFree();
 			Control page = idx switch
@@ -652,14 +671,14 @@ namespace NiubilityIdle
 			outer.OffsetTop = -48;
 
 			var track = new Panel { MouseFilter = MouseFilterEnum.Ignore };
-			track.AddThemeStyleboxOverride("panel", Flat(new Color("3a3a3a"), 8));
+			track.AddThemeStyleboxOverride("panel", Flat(new Color("2a2a30"), 12));
 			track.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 			track.OffsetLeft = 320; track.OffsetRight = -320;
-			track.OffsetTop = 9; track.OffsetBottom = -9;
+			track.OffsetTop = 6; track.OffsetBottom = -6;
 			outer.AddChild(track);
 
 			var fill = new Panel { MouseFilter = MouseFilterEnum.Ignore };
-			fill.AddThemeStyleboxOverride("panel", Flat(C_Pink, 8));
+			fill.AddThemeStyleboxOverride("panel", Flat(C_Pink, 12));
 			fill.SetAnchorsAndOffsetsPreset(LayoutPreset.FullRect);
 			fill.AnchorRight = 0;
 			track.AddChild(fill);
@@ -721,32 +740,33 @@ namespace NiubilityIdle
 			stack.SizeFlagsHorizontal = SizeFlags.Fill;
 			stack.AddThemeConstantOverride("separation", 6);
 			var g = SD();
-			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear();
+			_barLine1.Clear(); _barLine2.Clear(); _barAscBtns.Clear(); _barPanels.Clear();
 			for (int i = 0; i < g.game.unlocked && i < GameManager.MaxCircles; i++)
 			{
 				int idx = i;
 
-				var bar = new PanelContainer { MouseFilter = MouseFilterEnum.Stop, CustomMinimumSize = new Vector2(0, 64) };
-				bar.AddThemeStyleboxOverride("panel", Flat(BarCols[idx], 8));
+				var bar = new PanelContainer { MouseFilter = MouseFilterEnum.Stop, CustomMinimumSize = new Vector2(0, 60) };
+				bar.AddThemeStyleboxOverride("panel", Flat(BarCols[idx], 10));
+				_barPanels.Add(bar);
 				var mv = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
-				mv.AddThemeConstantOverride("margin_left", 8);
-				mv.AddThemeConstantOverride("margin_right", 6);
-				mv.AddThemeConstantOverride("margin_top", 5);
-				mv.AddThemeConstantOverride("margin_bottom", 5);
+				mv.AddThemeConstantOverride("margin_left", 10);
+				mv.AddThemeConstantOverride("margin_right", 8);
+				mv.AddThemeConstantOverride("margin_top", 6);
+				mv.AddThemeConstantOverride("margin_bottom", 6);
 				bar.AddChild(mv);
 				var hb = new HBoxContainer { MouseFilter = MouseFilterEnum.Ignore };
 				hb.AddThemeConstantOverride("separation", 6);
 				mv.AddChild(hb);
 				// 原版：条内两行居中，费用后跟 ⊙
 				var vb = new VBoxContainer { MouseFilter = MouseFilterEnum.Ignore, SizeFlagsHorizontal = SizeFlags.ExpandFill };
-				vb.AddThemeConstantOverride("separation", 1);
+				vb.AddThemeConstantOverride("separation", 2);
 				hb.AddChild(vb);
 				var l1 = new Label { Text = "圈/秒:0", HorizontalAlignment = HorizontalAlignment.Center };
-				l1.AddThemeFontSizeOverride("font_size", 14);
+				l1.AddThemeFontSizeOverride("font_size", 15);
 				l1.AddThemeColorOverride("font_color", new Color("1a1a1a"));
 				vb.AddChild(l1);
 				var l2 = new Label { Text = "", HorizontalAlignment = HorizontalAlignment.Center };
-				l2.AddThemeFontSizeOverride("font_size", 16);
+				l2.AddThemeFontSizeOverride("font_size", 17);
 				l2.AddThemeColorOverride("font_color", new Color("111111"));
 				vb.AddChild(l2);
 				_barLine1.Add(l1);
@@ -941,7 +961,14 @@ namespace NiubilityIdle
 			var title = new Label { Text = "转生窗口", HorizontalAlignment = HorizontalAlignment.Center };
 			title.AddThemeFontSizeOverride("font_size", 22);
 			title.AddThemeColorOverride("font_color", C_White);
-			vb.AddChild(title);
+			var titleBg = new PanelContainer { MouseFilter = MouseFilterEnum.Ignore };
+			titleBg.AddThemeStyleboxOverride("panel", Flat(C_Area, 6));
+			var titleMv = new MarginContainer { MouseFilter = MouseFilterEnum.Ignore };
+			titleMv.AddThemeConstantOverride("margin_top", 6); titleMv.AddThemeConstantOverride("margin_bottom", 6);
+			titleMv.AddThemeConstantOverride("margin_left", 12); titleMv.AddThemeConstantOverride("margin_right", 12);
+			titleMv.AddChild(title);
+			titleBg.AddChild(titleMv);
+			vb.AddChild(titleBg);
 
 			vb.AddChild(HRule());
 
@@ -1039,22 +1066,23 @@ namespace NiubilityIdle
 		private Control Card(string title, IEnumerable<string> lines)
 		{
 			var card = new PanelContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-			card.AddThemeStyleboxOverride("panel", Flat(C_Card2, 8));
+			card.AddThemeStyleboxOverride("panel", Flat(C_Card2, 10));
 			var mv = new MarginContainer();
-			mv.AddThemeConstantOverride("margin_left", 14);
-			mv.AddThemeConstantOverride("margin_right", 14);
-			mv.AddThemeConstantOverride("margin_top", 10);
-			mv.AddThemeConstantOverride("margin_bottom", 10);
+			mv.AddThemeConstantOverride("margin_left", 16);
+			mv.AddThemeConstantOverride("margin_right", 16);
+			mv.AddThemeConstantOverride("margin_top", 12);
+			mv.AddThemeConstantOverride("margin_bottom", 12);
 			card.AddChild(mv);
 			var vb = new VBoxContainer();
-			vb.AddThemeConstantOverride("separation", 6);
+			vb.AddThemeConstantOverride("separation", 8);
 			mv.AddChild(vb);
 			if (title != null)
 			{
 				var t = new Label { Text = title };
-				t.AddThemeFontSizeOverride("font_size", 17);
-				t.AddThemeColorOverride("font_color", MenuCols[0]);
+				t.AddThemeFontSizeOverride("font_size", 18);
+				t.AddThemeColorOverride("font_color", new Color("f5d43c"));
 				vb.AddChild(t);
+				vb.AddChild(HRule());
 			}
 			foreach (var ln in lines)
 			{
@@ -1605,9 +1633,16 @@ namespace NiubilityIdle
 		private Button MakeTextButton(string txt, Color bg, Color fg, int w, int h, int fontSize)
 		{
 			var b = new Button { Text = txt, CustomMinimumSize = new Vector2(w, h), FocusMode = FocusModeEnum.None };
-			var n = Flat(bg, 6);
-			var h2 = Flat(bg.Lightened(0.12f), 6);
-			var p = Flat(bg.Darkened(0.12f), 6);
+			var n = Flat(bg, 8);
+			var h2 = Flat(bg.Lightened(0.15f), 8);
+			var p = Flat(bg.Darkened(0.12f), 8);
+			// 内边距让文字呼吸
+			n.ContentMarginLeft = 14; n.ContentMarginRight = 14;
+			n.ContentMarginTop = 6; n.ContentMarginBottom = 6;
+			h2.ContentMarginLeft = 14; h2.ContentMarginRight = 14;
+			h2.ContentMarginTop = 6; h2.ContentMarginBottom = 6;
+			p.ContentMarginLeft = 14; p.ContentMarginRight = 14;
+			p.ContentMarginTop = 6; p.ContentMarginBottom = 6;
 			b.AddThemeStyleboxOverride("normal", n);
 			b.AddThemeStyleboxOverride("hover", h2);
 			b.AddThemeStyleboxOverride("pressed", p);
@@ -1666,20 +1701,22 @@ namespace NiubilityIdle
 			var c = new Vector2(Size.X / 2f, Size.Y / 2f);
 			float min = Math.Min(Size.X, Size.Y);
 
-			// red core (original scale)
+			// 红心外光晕(半透明大圆 + 深红外环 + 实心红心)
+			DrawCircle(c, min * 0.075f, new Color("e8483f", 0.12f));
 			DrawCircle(c, min * 0.048f, new Color("8f1f16"));
 			DrawCircle(c, min * 0.036f, new Color("e8483f"));
+			DrawCircle(c, min * 0.022f, new Color("ff6a5a"));
 
-			// all 11 ring tracks always visible (locked = empty track)
+			// 11 条环轨道全部常驻(锁定圈是空轨道),半径 0.115 -> 0.26 均匀分布
 			for (int i = 0; i < TrackCols.Length; i++)
 			{
 				float r = min * (0.13f + 0.40f * i / (TrackCols.Length - 1));
 				var trackCol = TrackCols[i];
 				bool unlockedRing = i < g.game.unlocked;
-				trackCol.A = unlockedRing ? 0.55f : 0.35f;
-				DrawArc(c, r, 0, Mathf.Tau, 160, trackCol, 5f, true);
+				trackCol.A = unlockedRing ? 0.5f : 0.3f;
+				DrawArc(c, r, 0, Mathf.Tau, 160, trackCol, 6f, true);
 
-				// bright progress arc, round cap
+				// 亮色进度弧:弧长 = 转圈进度,圆头端点 + 外光晕
 				if (unlockedRing)
 				{
 					double prog = i < g.game.revProgress.Count ? g.game.revProgress[i] : 0;
@@ -1689,9 +1726,13 @@ namespace NiubilityIdle
 						float sweep = (float)prog * Mathf.Tau;
 						float start = -Mathf.Pi / 2f;
 						var col = TrackCols[i];
+						// 光晕(半透明粗弧)
+						var glow = col; glow.A = 0.35f;
+						DrawArc(c, r, start, start + sweep, 160, glow, 14f, true);
+						// 主弧
 						DrawArc(c, r, start, start + sweep, 160, col, 9f, true);
 						float ae = start + sweep;
-						DrawCircle(c + new Vector2(MathF.Cos(ae), MathF.Sin(ae)) * r, 5f, col);
+						DrawCircle(c + new Vector2(MathF.Cos(ae), MathF.Sin(ae)) * r, 6f, col);
 					}
 				}
 			}
