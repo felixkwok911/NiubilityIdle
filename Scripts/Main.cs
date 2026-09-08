@@ -569,7 +569,11 @@ namespace NiubilityIdle
 				{
 					if (ev is InputEventMouseButton mb && mb.Pressed && mb.ButtonIndex == MouseButton.Left)
 					{
-						if (MenuLocked(idx)) { Toast("完成第一次无限后解锁"); return; }
+						if (MenuLocked(idx))
+						{
+							Toast(idx == 4 ? "统一:完成永恒获得 EP 后解锁" : "完成第一次无限(1.79e308)后解锁");
+							return;
+						}
 						ShowMenu(idx);
 					}
 				};
