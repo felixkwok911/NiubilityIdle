@@ -812,8 +812,13 @@ namespace NiubilityIdle
 			var scoreRow = new HBoxContainer { Alignment = BoxContainer.AlignmentMode.Center };
 			scoreRow.AddThemeConstantOverride("separation", 10);
 			_scoreLbl = new Label { Text = Suf(g.game.score) };
-			_scoreLbl.AddThemeFontSizeOverride("font_size", 44);
+			_scoreLbl.AddThemeFontSizeOverride("font_size", 46);
 			_scoreLbl.AddThemeColorOverride("font_color", C_White);
+			_scoreLbl.AddThemeColorOverride("font_shadow_color", new Color(0, 0, 0, 0.6f));
+			_scoreLbl.AddThemeConstantOverride("shadow_offset_x", 0);
+			_scoreLbl.AddThemeConstantOverride("shadow_offset_y", 3);
+			_scoreLbl.AddThemeConstantOverride("outline_size", 8);
+			_scoreLbl.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.45f));
 			scoreRow.AddChild(_scoreLbl);
 			var odot = new Label { Text = "⊙" };
 			odot.AddThemeFontSizeOverride("font_size", 24);
@@ -1041,19 +1046,27 @@ namespace NiubilityIdle
 			scroll.HorizontalScrollMode = ScrollContainer.ScrollMode.Disabled;
 
 			var vb = new VBoxContainer { SizeFlagsHorizontal = SizeFlags.ExpandFill };
-			vb.AddThemeConstantOverride("separation", 14);
+			vb.AddThemeConstantOverride("separation", 16);
 			scroll.AddChild(vb);
 
+			// 标题区:大标题 + 分隔线
 			var t = new Label { Text = title };
-			t.AddThemeFontSizeOverride("font_size", 30);
+			t.AddThemeFontSizeOverride("font_size", 34);
 			t.AddThemeColorOverride("font_color", C_White);
+			t.AddThemeColorOverride("font_shadow_color", new Color(0, 0, 0, 0.6f));
+			t.AddThemeConstantOverride("shadow_offset_y", 3);
 			vb.AddChild(t);
+			vb.AddChild(HRule());
 
 			if (bigValue != null)
 			{
 				var big = new Label { Text = bigValue, HorizontalAlignment = HorizontalAlignment.Center };
-				big.AddThemeFontSizeOverride("font_size", 44);
+				big.AddThemeFontSizeOverride("font_size", 48);
 				big.AddThemeColorOverride("font_color", bigCol);
+				big.AddThemeColorOverride("font_shadow_color", new Color(0, 0, 0, 0.5f));
+				big.AddThemeConstantOverride("shadow_offset_y", 3);
+				big.AddThemeConstantOverride("outline_size", 8);
+				big.AddThemeColorOverride("font_outline_color", new Color(0, 0, 0, 0.45f));
 				vb.AddChild(big);
 				var sub = new Label { Text = bigSub, HorizontalAlignment = HorizontalAlignment.Center };
 				sub.AddThemeFontSizeOverride("font_size", 15);
@@ -1102,7 +1115,7 @@ namespace NiubilityIdle
 			var g = SD();
 			var page = (ScrollContainer)PageShell("无限 Infinity", Suf(g.infinity.infinityPoints), "无限点数 IP · 无限次数 " + Suf(g.infinity.infinities), new Color("38cfc0"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			_infBig = (Label)vb.GetChild(1);
+			_infBig = (Label)vb.GetChild(2);
 			var infBtn = MakeTextButton("执 行 无 限 (需 1.79e308)", new Color("38cfc0"), new Color("0a2220"), 0, 44, 20);
 			infBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
 			infBtn.Pressed += () =>
@@ -1136,7 +1149,7 @@ namespace NiubilityIdle
 			var inf = SD().infinity;
 			var page = (ScrollContainer)PageShell("无限树 Infinity Tree", Suf(inf.infinityPoints), "消耗 IP 购买永久升级(无限后生效)", new Color("8bc94f"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			_treeBig = (Label)vb.GetChild(1);
+			_treeBig = (Label)vb.GetChild(2);
 
 			var grid = new GridContainer { Columns = 2 };
 			grid.AddThemeConstantOverride("h_separation", 10);
@@ -1208,7 +1221,7 @@ namespace NiubilityIdle
 			var g = SD();
 			var page = (ScrollContainer)PageShell("统一 Unity", Suf(g.game.unityShards), "统一碎片(由 eters 自动积累) · 矿物 " + Suf(g.game.minerals), new Color("9a4dd8"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			_unityBig = (Label)vb.GetChild(1);
+			_unityBig = (Label)vb.GetChild(2);
 
 			vb.AddChild(SmallLine("统一升级(消耗统一碎片,永久生效)", 17, new Color("9a4dd8")));
 			var grid = new GridContainer { Columns = 2 };
@@ -1257,7 +1270,7 @@ namespace NiubilityIdle
 			var g = SD();
 			var page = (ScrollContainer)PageShell("时间流量 Time Flux", Suf(g.game.timeFlux), "随游戏时间自动积累 · 灵魂 " + Suf(g.game.souls), new Color("ef8b33"));
 			var vb = (VBoxContainer)page.GetChild(0);
-			_fluxBig = (Label)vb.GetChild(1);
+			_fluxBig = (Label)vb.GetChild(2);
 			vb.AddChild(Card("时间加速", new[] { "消耗 30 秒时间流量 → 全局产出 ×2,持续 60 秒" }));
 			var boostBtn = MakeTextButton("使用加速 (30 TF → ×2 / 60秒)", new Color("ef8b33"), new Color("3a2506"), 0, 44, 18);
 			boostBtn.SizeFlagsHorizontal = SizeFlags.ExpandFill;
