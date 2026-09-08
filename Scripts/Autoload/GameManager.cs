@@ -21,7 +21,7 @@ namespace NiubilityIdle.Autoload
         public SaveData Save { get; private set; } = new();
         public string SavePath => OS.GetUserDataDir() + "/save.json";
 
-        public const int MaxCircles = 11;
+        public const int MaxCircles = 10;
 
         // 成就定义:id/名称/描述/检查(原版 GameData.UnlockAchievement + GetAchievementName/Desc)
         public static readonly (int id, string name, string desc, Func<SaveData, bool> check)[] AchDefs =
@@ -102,11 +102,11 @@ namespace NiubilityIdle.Autoload
 
         public int Level(int idx) => idx >= 0 && idx < Save.game.circleLevels.Count ? Save.game.circleLevels[idx] : 0;
 
-        // ── Buyable(baseCost, costInc):价格指数曲线 ──
+        // ── Buyable(baseCost, costInc):价格指数曲线,原版圈1 Lv80 ≈ 8.6M ──
         public static BigDouble GetCircleCost(int idx, int lv)
         {
-            double baseCost = 5.0 * System.Math.Pow(60.0, idx);
-            return new BigDouble(baseCost, 0) * System.Math.Pow(1.4, lv);
+            double baseCost = 10.0 * System.Math.Pow(40.0, idx);
+            return new BigDouble(baseCost, 0) * System.Math.Pow(1.22, lv);
         }
 
         // Revolution.speed:圈/秒 = 等级 × 0.2/(i+1)(原版左条 [+0.2]..[+0.02])
@@ -131,10 +131,10 @@ namespace NiubilityIdle.Autoload
             while (Save.game.revMult.Count <= idx) Save.game.revMult.Add(1);
         }
 
-        // ── 飞升(Ascend):等级换永久倍率,原版核心成长 ──
+        // ── 飞升(Ascend):等级满 25 重置,倍率固定 ×2(原版 mult = base × 2^飞升次数) ──
         public const int AscendLevel = 25;
         public bool CanAscend(int idx) => Level(idx) >= AscendLevel;
-        public double AscendGain(int idx) => 1.0 + Level(idx) / (double)AscendLevel; // 本次飞升倍率增量
+        public double AscendGain(int idx) => 2.0;
 
         public bool TryAscend(int idx)
         {
@@ -346,10 +346,13 @@ namespace NiubilityIdle.Autoload
         public void DoPrestige()
         {
             var g = Save.game;
-            // 倍率增量 ≈ 10^((exp-6)/2) × 无限树转生增益:1e9 分 -> +1e3,近似原版 x65 -> x93,501 的跳涨
-            if (g.score.exponent > 6)
-                g.prestigeMult += System.Math.Pow(10, (g.score.exponent - 6) * 0.5) * (1.0 + 0.5 * TreeLevel(2));
-            g.prestigeExp += 0.01;
+            // 原版:x65.45 -> x93,501 的跳涨 —— 新倍率 = 旧倍率 × (score/1e15)^0.25
+            if (g.score.exponent >= 15)
+            {
+                double factor = System.Math.Pow(g.score.ToDouble() / 1e15, 0.25);
+                if (factor > 1) g.prestigeMult *= factor;
+            }
+            g.prestigeExp += 0.07;   // 原版:^1.04 -> ^1.11
             g.prestigeCount++;
             g.score = BigDouble.Zero;
             g.circleLevels = new List<int> { 1 };
@@ -362,10 +365,10 @@ namespace NiubilityIdle.Autoload
         public double GetPrestigePreview()
         {
             var g = Save.game;
-            double add = g.score.exponent > 6
-                ? System.Math.Pow(10, (g.score.exponent - 6) * 0.5) * (1.0 + 0.5 * TreeLevel(2))
-                : 0;
-            return g.prestigeMult + add;
+            double factor = g.score.exponent >= 15
+                ? System.Math.Pow(g.score.ToDouble() / 1e15, 0.25)
+                : 1;
+            return g.prestigeMult * System.Math.Max(1, factor);
         }
 
         // 晋升(promotion):转生 5 次后可用
